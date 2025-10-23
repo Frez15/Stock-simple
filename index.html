@@ -16,7 +16,21 @@
 </head>
 <body>
   <h1>Consulta de Stock y Precios de Artículos</h1>
-  <p>Introduce el código de artículo para obtener su precio, stock y unidades por bulto. Asegúrate de configurar tus credenciales en <code>script.js</code> o mediante variables de entorno.</p>
+  <!--
+    Mensaje introductorio de la aplicación de consulta.
+
+    Explicamos al usuario que puede introducir un código de artículo o bien escribir
+    una parte de la descripción para que el sistema le sugiera coincidencias.
+    Ya no es necesario configurar credenciales manualmente en este archivo, ya que
+    se incluyen directamente en el script o se pueden usar variables de entorno
+    en el despliegue.  Para evitar publicar credenciales en repositorios públicos
+    se recomienda usar variables de entorno en entornos de producción.
+  -->
+  <p>
+    Introduce el código o escribe una parte de la descripción del artículo para
+    obtener su precio, stock y unidades por bulto. A medida que escribas, se
+    mostrarán sugerencias de coincidencias de artículos.
+  </p>
   <form id="searchForm">
     <label for="articleInput">Código de artículo:</label>
     <input type="text" id="articleInput" required list="articleSuggestions" />
