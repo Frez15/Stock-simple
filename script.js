@@ -38,7 +38,7 @@ async function loadAllArticles() {
   const url = new URL(`${CHESS_API_BASE}/articulos/`);
   // No pasamos parámetros para que devuelva todos los artículos no anulados por defecto.
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { 'Cookie': `JSESSIONID=${token}` }
   });
   if (!response.ok) {
     throw new Error('Error al obtener artículos');
@@ -48,17 +48,25 @@ async function loadAllArticles() {
   articlesList = Array.isArray(data) ? data : [data];
 }
 
+/**
+ * Realiza el inicio de sesión contra ChessERP. Este servicio devuelve un
+ * objeto con la propiedad `sessionId`. Según la documentación de ChessERP,
+ * las llamadas posteriores deben incluir el identificador de sesión en un
+ * header llamado `Cookie` con el formato `JSESSIONID={sessionId}`.
+ */
 async function login() {
   const response = await fetch(`${CHESS_API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user: CHESS_USER, password: CHESS_PASSWORD })
+    // La API espera los campos "usuario" y "password" en el cuerpo
+    body: JSON.stringify({ usuario: CHESS_USER, password: CHESS_PASSWORD })
   });
   if (!response.ok) {
     throw new Error('Error al autenticar');
   }
   const data = await response.json();
-  return data.token || data.access_token;
+  // El campo sessionId contiene el identificador de sesión
+  return data.sessionId || data.token || data.access_token;
 }
 
 async function fetchStock(articleId, token) {
@@ -66,7 +74,8 @@ async function fetchStock(articleId, token) {
   url.searchParams.append('idDeposito', ID_DEPOSITO);
   url.searchParams.append('idArticulo', articleId);
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+    // Incluir cookie con JSESSIONID según especificaciones de autenticación
+    headers: { 'Cookie': `JSESSIONID=${token}` }
   });
   if (!response.ok) {
     throw new Error('Error consultando stock');
@@ -78,7 +87,7 @@ async function fetchArticle(articleId, token) {
   const url = new URL(`${CHESS_API_BASE}/articulos/`);
   url.searchParams.append('articulo', articleId);
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { 'Cookie': `JSESSIONID=${token}` }
   });
   if (!response.ok) {
     throw new Error('Error consultando artículo');
@@ -91,7 +100,7 @@ async function fetchPrice(articleId, token) {
   url.searchParams.append('articulo', articleId);
   // Puedes especificar una fecha de vigencia si lo deseas
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { 'Cookie': `JSESSIONID=${token}` }
   });
   if (!response.ok) {
     throw new Error('Error consultando precios');
