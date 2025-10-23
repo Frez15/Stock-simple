@@ -19,9 +19,10 @@
   <p>Introduce el código de artículo para obtener su precio, stock y unidades por bulto. Asegúrate de configurar tus credenciales en <code>script.js</code> o mediante variables de entorno.</p>
   <form id="searchForm">
     <label for="articleInput">Código de artículo:</label>
-    <input type="text" id="articleInput" required />
+    <input type="text" id="articleInput" required list="articleSuggestions" />
     <button type="submit">Buscar</button>
   </form>
+  <datalist id="articleSuggestions"></datalist>
   <div id="result" class="result" style="display:none;"></div>
 
   <script src="script.js"></script>
