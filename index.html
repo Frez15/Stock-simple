@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Consulta de Artículos ChessERP</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    form { margin-bottom: 1rem; }
+    label { display: block; margin-bottom: 0.5rem; }
+    input[type="text"] { padding: 0.5rem; width: 300px; }
+    button { padding: 0.5rem 1rem; }
+    .result { margin-top: 2rem; padding: 1rem; border: 1px solid #ccc; border-radius: 4px; max-width: 600px; }
+    .result h3 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>Consulta de Stock y Precios de Artículos</h1>
+  <p>Introduce el código de artículo para obtener su precio, stock y unidades por bulto. Asegúrate de configurar tus credenciales en <code>script.js</code> o mediante variables de entorno.</p>
+  <form id="searchForm">
+    <label for="articleInput">Código de artículo:</label>
+    <input type="text" id="articleInput" required />
+    <button type="submit">Buscar</button>
+  </form>
+  <div id="result" class="result" style="display:none;"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
