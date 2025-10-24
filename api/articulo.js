@@ -44,8 +44,14 @@ async function handler(req, res) {
       const text = await artResp.text();
       return res.status(artResp.status).json({ error: text || 'Error consultando artículo' });
     }
-    const artData = await artResp.json();
-    res.status(200).json(artData);
+    // api/articulo.js
+const artData = await artResp.json();
+// Si existe la lista eArticulos, toma el primer elemento; de lo contrario, usa el objeto tal cual.
+const result = artData && Array.isArray(artData.eArticulos)
+  ? artData.eArticulos[0]
+  : artData;
+res.status(200).json(result);
+
   } catch (err) {
     res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
   }
