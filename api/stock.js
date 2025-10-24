@@ -7,8 +7,10 @@ async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
   // Take credentials from environment variables, with defaults as fallback.
-  const username = process.env.CHESS_USER || 'DESARROLLOS';
-  const password = process.env.CHESS_PASSWORD || '123simple';
+  // Establecer credenciales predeterminadas para el API. Se emplea
+  // 'Desarrrollos' como usuario y '1234' como contraseña.
+  const username = process.env.CHESS_USER || 'Desarrrollos';
+  const password = process.env.CHESS_PASSWORD || '1234';
   const { id, deposit } = req.query;
   if (!id) {
     return res.status(400).json({ error: 'Falta el parámetro id' });

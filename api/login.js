@@ -13,8 +13,12 @@ async function handler(req, res) {
   // variables are not configured. Note: hard‑coding credentials in source
   // code is generally discouraged for production systems, but is used here
   // to simplify deployment in this exercise.
-  const username = process.env.CHESS_USER || 'DESARROLLOS';
-  const password = process.env.CHESS_PASSWORD || '123simple';
+  // Actualiza con el usuario de API correcto. Se utiliza 'Desarrrollos' (tres erres)
+  // y la contraseña '1234' como valores por defecto si no se definen variables
+  // de entorno. La API es sensible a mayúsculas y minúsculas en el nombre de
+  // usuario, por lo que respetamos el caso provisto por soporte.
+  const username = process.env.CHESS_USER || 'Desarrrollos';
+  const password = process.env.CHESS_PASSWORD || '1234';
   if (!username || !password) {
     return res
       .status(500)
