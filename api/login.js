@@ -8,17 +8,12 @@
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Read credentials from environment variables, falling back to hard-coded
-  // values. This allows the function to work even if Vercel environment
-  // variables are not configured. Note: hard‑coding credentials in source
-  // code is generally discouraged for production systems, but is used here
-  // to simplify deployment in this exercise.
-  // Actualiza con el usuario de API correcto. Se utiliza 'Desarrrollos' (tres erres)
-  // y la contraseña '1234' como valores por defecto si no se definen variables
-  // de entorno. La API es sensible a mayúsculas y minúsculas en el nombre de
-  // usuario, por lo que respetamos el caso provisto por soporte.
-  const username = process.env.CHESS_USER || 'Desarrrollos';
-  const password = process.env.CHESS_PASSWORD || '1234';
+  // Always use the dedicated API credentials. We intentionally hard‑code
+  // the user and password here to avoid relying on Vercel environment
+  // variables, which may still contain outdated credentials. This user
+  // name contains three r's, matching the account created for API use.
+  const username = 'Desarrrollos';
+  const password = '1234';
   if (!username || !password) {
     return res
       .status(500)

@@ -5,11 +5,11 @@
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Use environment variables if provided; otherwise fall back to
-  // hard-coded credentials. See login.js for more details.
-  // Utilizar el usuario de API correcto. Por defecto 'Desarrrollos' y contraseña '1234'.
-  const username = process.env.CHESS_USER || 'Desarrrollos';
-  const password = process.env.CHESS_PASSWORD || '1234';
+  // Always use the fixed credentials for the API. This avoids using any
+  // environment variables that may still reference outdated users. The
+  // username includes three r's as specified by support.
+  const username = 'Desarrrollos';
+  const password = '1234';
   if (!username || !password) {
     return res
       .status(500)
