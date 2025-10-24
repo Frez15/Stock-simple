@@ -2,7 +2,7 @@
 // It performs authentication on each request and forwards the JSON
 // response back to the client.
 
-export default async function handler(req, res) {
+async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
   const username = process.env.CHESS_USER;
@@ -45,3 +45,6 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
   }
 }
+
+// Export handler using CommonJS so Vercel can pick up the function without ESM config
+module.exports = handler;
