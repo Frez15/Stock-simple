@@ -4,8 +4,10 @@ const CHESS_API_BASE = 'https://simpledistribuciones.chesserp.com/AR1268/web/api
 // estas variables como variables de entorno; sin embargo, a solicitud del usuario
 // se incluyen directamente aquí. ¡Ten en cuenta que exponer credenciales en el
 // código público puede ser un riesgo de seguridad!
-const CHESS_USER = 'admin'; // Usuario de ChessERP
-const CHESS_PASSWORD = 'Elplaneta1551'; // Contraseña de ChessERP
+// Credenciales de acceso actualizadas para el usuario dedicado a APIs
+// Nota: Exponer estas credenciales en código público sigue siendo un riesgo de seguridad.
+const CHESS_USER = 'DESARROLLOS'; // Usuario de ChessERP dedicado a API
+const CHESS_PASSWORD = '123simple'; // Contraseña de ChessERP para el usuario de API
 const ID_DEPOSITO = 1; // Depósito desde el cual consultar el stock
 
 // Variables de estado para reutilizar el token de autenticación y la lista
