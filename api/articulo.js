@@ -5,13 +5,12 @@
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Read credentials from environment variables or use defaults. See
-  // commentary in login.js for rationale.
-  // Use fixed credentials to avoid relying on environment variables. The API
-  // user name contains three r's and matches the account created for API use.
+  // Use fixed credentials for the API. The username contains three r's
+  // and matches the account created for API use.
   const username = 'Desarrrollos';
   const password = '1234';
   const { id } = req.query;
+
   if (!id) {
     return res.status(400).json({ error: 'Falta el parámetro id' });
   }
@@ -29,10 +28,14 @@ async function handler(req, res) {
     });
     if (!loginResp.ok) {
       const text = await loginResp.text();
-      return res.status(loginResp.status).json({ error: text || 'Error de autenticación' });
+      return res
+        .status(loginResp.status)
+        .json({ error: text || 'Error de autenticación' });
     }
     const loginData = await loginResp.json();
-    const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
+    const sessionId =
+      loginData.sessionId || loginData.token || loginData.access_token;
+
     // Consultar el artículo
     const url = new URL(`${CHESS_API_BASE}/articulos/`);
     url.searchParams.append('articulo', id);
@@ -42,18 +45,21 @@ async function handler(req, res) {
     });
     if (!artResp.ok) {
       const text = await artResp.text();
-      return res.status(artResp.status).json({ error: text || 'Error consultando artículo' });
+      return res
+        .status(artResp.status)
+        .json({ error: text || 'Error consultando artículo' });
     }
-    // api/articulo.js
-const artData = await artResp.json();
-// Si existe la lista eArticulos, toma el primer elemento; de lo contrario, usa el objeto tal cual.
-const result = artData && Array.isArray(artData.eArticulos)
-  ? artData.eArticulos[0]
-  : artData;
-res.status(200).json(result);
-
+    const artData = await artResp.json();
+    // Extraer el primer artículo del array eArticulos, si existe
+    const result =
+      artData && Array.isArray(artData.eArticulos)
+        ? artData.eArticulos[0]
+        : artData;
+    res.status(200).json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
+    res
+      .status(500)
+      .json({ error: err.message || 'Error conectando con ChessERP' });
   }
 }
 
