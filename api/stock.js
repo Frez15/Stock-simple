@@ -6,12 +6,11 @@
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Always use the fixed credentials for the API. We avoid using environment
-  // variables since they may still contain outdated users. The username
-  // includes three r's as specified by support.
+  // Use fixed credentials for the API. The username includes three r's.
   const username = 'Desarrrollos';
   const password = '1234';
   const { id, deposit } = req.query;
+
   if (!id) {
     return res.status(400).json({ error: 'Falta el parámetro id' });
   }
@@ -30,10 +29,14 @@ async function handler(req, res) {
     });
     if (!loginResp.ok) {
       const text = await loginResp.text();
-      return res.status(loginResp.status).json({ error: text || 'Error de autenticación' });
+      return res
+        .status(loginResp.status)
+        .json({ error: text || 'Error de autenticación' });
     }
     const loginData = await loginResp.json();
-    const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
+    const sessionId =
+      loginData.sessionId || loginData.token || loginData.access_token;
+
     // Consultar el stock
     const url = new URL(`${CHESS_API_BASE}/stock/`);
     url.searchParams.append('idDeposito', depositoId);
@@ -44,12 +47,21 @@ async function handler(req, res) {
     });
     if (!stockResp.ok) {
       const text = await stockResp.text();
-      return res.status(stockResp.status).json({ error: text || 'Error consultando stock' });
+      return res
+        .status(stockResp.status)
+        .json({ error: text || 'Error consultando stock' });
     }
     const stockData = await stockResp.json();
-    res.status(200).json(stockData);
+    // Extraer el primer registro del array eStockFisico, si existe
+    const result =
+      stockData && Array.isArray(stockData.eStockFisico)
+        ? stockData.eStockFisico[0]
+        : stockData;
+    res.status(200).json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
+    res
+      .status(500)
+      .json({ error: err.message || 'Error conectando con ChessERP' });
   }
 }
 
