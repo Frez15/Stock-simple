@@ -37,7 +37,8 @@ async function handler(req, res) {
     const url = new URL(`${CHESS_API_BASE}/articulos/`);
     url.searchParams.append('articulo', id);
     const artResp = await fetch(url.toString(), {
-      headers: { Cookie: `JSESSIONID=${sessionId}` },
+      // Enviar la cookie de sesión tal como se devolvió por el login
+      headers: { Cookie: sessionId },
     });
     if (!artResp.ok) {
       const text = await artResp.text();

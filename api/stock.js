@@ -39,7 +39,8 @@ async function handler(req, res) {
     url.searchParams.append('idDeposito', depositoId);
     url.searchParams.append('idArticulo', id);
     const stockResp = await fetch(url.toString(), {
-      headers: { Cookie: `JSESSIONID=${sessionId}` },
+      // Enviar la cookie de sesión tal cual la devuelve el login.
+      headers: { Cookie: sessionId },
     });
     if (!stockResp.ok) {
       const text = await stockResp.text();

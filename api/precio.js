@@ -37,16 +37,20 @@ async function handler(req, res) {
     }
     const loginData = await loginResp.json();
     const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
-    // Consultar la lista de precios
-    const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
-    url.searchParams.append('Fecha', hoy);
-    url.searchParams.append('Lista', lista);
-    const priceResp = await fetch(url.toString(), {
-      headers: {
-        Cookie: `JSESSIONID=${sessionId}`,
-        accept: 'application/json',
-      },
-    });
+        // Consultar la lista de precios
+        // La API devuelve sessionId en forma "JSESSIONID=xyz". Para evitar duplicar
+        // el nombre de la cookie, se envía el valor completo tal como lo
+        // proporciona ChessERP en la cabecera Cookie. Esto es equivalente a
+        // enviar "Cookie: JSESSIONID=xyz" cuando el valor ya incluye el prefijo.
+        const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
+        url.searchParams.append('Fecha', hoy);
+        url.searchParams.append('Lista', lista);
+        const priceResp = await fetch(url.toString(), {
+          headers: {
+            Cookie: sessionId,
+            accept: 'application/json',
+          },
+        });
     if (!priceResp.ok) {
       const text = await priceResp.text();
       return res.status(priceResp.status).json({ error: text || 'Error consultando precios' });

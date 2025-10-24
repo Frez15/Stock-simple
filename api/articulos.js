@@ -30,8 +30,10 @@ async function handler(req, res) {
     const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
     // Consultar todos los artículos
     const url = new URL(`${CHESS_API_BASE}/articulos/`);
+    // Enviar la cookie tal como se devuelve en el login. No prefiere el
+    // nombre de cookie porque ya está incluido.
     const artResp = await fetch(url.toString(), {
-      headers: { Cookie: `JSESSIONID=${sessionId}` },
+      headers: { Cookie: sessionId },
     });
     if (!artResp.ok) {
       const text = await artResp.text();
