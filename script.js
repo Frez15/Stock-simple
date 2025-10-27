@@ -141,6 +141,10 @@ const STOCK_UNITS_KEYS = [
  */
 function pickField(source, keys) {
   if (!source || typeof source !== 'object') return undefined;
+
+  const isUsableValue = (value) =>
+    value !== undefined && value !== null && value !== '' && typeof value !== 'object';
+
   const entries = Object.entries(source);
   const loweredEntries = entries.map(([k, v]) => [k.toLowerCase(), v]);
   for (const key of keys) {
@@ -148,14 +152,14 @@ function pickField(source, keys) {
     const directMatch = loweredEntries.find(([entryKey]) => entryKey === lowerKey);
     if (directMatch) {
       const value = directMatch[1];
-      if (value !== undefined && value !== null && value !== '') return value;
+      if (isUsableValue(value)) return value;
     }
   }
   // Segundo intento: coincidencia parcial (útil para claves como `cantidadXBulto`).
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
     const partialMatch = entries.find(([entryKey, value]) => {
-      if (value === undefined || value === null || value === '') return false;
+      if (!isUsableValue(value)) return false;
       return entryKey.toLowerCase().includes(lowerKey);
     });
     if (partialMatch) {
