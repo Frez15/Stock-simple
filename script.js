@@ -107,12 +107,18 @@ const UNIDADES_BULTO_KEYS  = ['Unidades_Bulto','unidadBulto','unidadesBulto'];
 // ============================================= //
 
 /**
- * Formatea números con 2 decimales en es-AR.
+ * Formatea números como moneda en ARS con símbolo $ y 2 decimales.
  */
 function formatNumber(n) {
   if (n === undefined || n === null || n === '' || isNaN(Number(n))) return 'N/D';
-  return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n));
+  return new Intl.NumberFormat('es-AR', { 
+    style: 'currency',
+    currency: 'ARS',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(n));
 }
+
 
 /**
  * Devuelve el primer valor no vacío de un objeto que coincida con las claves especificadas.
