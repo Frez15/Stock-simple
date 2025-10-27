@@ -1,139 +1,110 @@
-// Devuelve artículos para autocompletar (filtrados por ?q= y con paginado).
-// Reutiliza /api/login para obtener la cookie.
-// Intenta paginar con varios esquemas: (Desde,Cantidad) | (Desde,Hasta) | (page,size)
+// /api/articulos.js
+// Trae artículos desde ChessERP y filtra en el backend por ?q= y ?limit=.
+// Devuelve campos mínimos para autocompletar.
 
-function baseUrl(req) {
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  const host  = req.headers.host || 'localhost:3000';
-  return `${proto}://${host}`;
-}
+async function handler(req, res) {
+  const CHESS_API_BASE =
+    'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
 
-async function getSessionCookie(req) {
-  const resp = await fetch(`${baseUrl(req)}/api/login`, { headers: { Accept: 'application/json' }});
-  if (!resp.ok) throw new Error(`Fallo /api/login (${resp.status})`);
-  const data = await resp.json();
-  let sid = data.sessionId || data.token || data.access_token || data.JSESSIONID || data.jsessionid;
-  if (!sid) throw new Error('Login no devolvió sessionId');
-  if (!/^JSESSIONID=/i.test(String(sid))) sid = `JSESSIONID=${sid}`;
-  return sid;
-}
+  // Credenciales fijas (como venías usando)
+  const username = 'Desarrrollos'; // con tres "r"
+  const password = '1234';
 
-const CHESS_API_BASE =
-  process.env.CHESS_API_BASE ||
-  'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
+  // Parámetros de búsqueda y límite
+  const q = (req.query.q || '').toString().trim();
+  const limit = Math.min(parseInt(req.query.limit || '10', 10) || 10, 100);
 
-// Intenta una “página” con un esquema de query dado
-async function fetchBatch({ cookie, scheme, start, size }) {
-  const url = new URL(`${CHESS_API_BASE}/articulos/`);
-  url.searchParams.set('Anulado', 'false');
-
-  if (scheme === 'desde-cantidad') {
-    url.searchParams.set('Desde', String(start));
-    url.searchParams.set('Cantidad', String(size));
-  } else if (scheme === 'desde-hasta') {
-    url.searchParams.set('Desde', String(start));
-    url.searchParams.set('Hasta', String(start + size));
-  } else if (scheme === 'page-size') {
-    url.searchParams.set('page', String(Math.floor(start / size)));
-    url.searchParams.set('size', String(size));
-  }
-
-  const resp = await fetch(url.toString(), {
-    headers: { Cookie: cookie, Accept: 'application/json' },
-  });
-  if (!resp.ok) {
-    const t = await resp.text().catch(() => '');
-    throw new Error(t || `Error consultando artículos (${resp.status})`);
-  }
-  const data = await resp.json().catch(() => ({}));
-  // Normalizador: el Chess suele devolver eArticulos adentro de dsArticulosApi
-  let list = [];
-  if (Array.isArray(data?.dsArticulosApi?.eArticulos)) list = data.dsArticulosApi.eArticulos;
-  else if (Array.isArray(data?.eArticulos)) list = data.eArticulos;
-  else if (Array.isArray(data)) {
-    for (const b of data) {
-      if (Array.isArray(b?.dsArticulosApi?.eArticulos)) list.push(...b.dsArticulosApi.eArticulos);
-      else if (Array.isArray(b?.eArticulos)) list.push(...b.eArticulos);
-    }
-  }
-  // Fallback: algunos tenants responden directamente como array de artículos (como tu ejemplo)
-  if (!list.length && Array.isArray(data) && data.length && data[0]?.idArticulo) list = data;
-
-  return list;
-}
-
-async function fetchAllArticles(cookie, maxWanted = 2000, batch = 500) {
-  const schemes = ['desde-cantidad', 'desde-hasta', 'page-size', '']; // '' = sin paginar (un único llamado)
-  const seen = new Map();
-
-  for (const scheme of schemes) {
-    let start = 0;
-    let loops = 0;
-    // Limpio entre esquemas
-    for (const key of seen.keys()) seen.delete(key);
-
-    while (loops < 50) {
-      let page;
-      if (scheme) {
-        page = await fetchBatch({ cookie, scheme, start, size: batch });
-      } else {
-        // Sin paginar: un solo request
-        page = await fetchBatch({ cookie, scheme: 'desde-cantidad', start: 0, size: batch }); // usamos normalizador
-      }
-
-      for (const a of page || []) {
-        const id = a?.idArticulo ?? a?.id_articulo;
-        if (id != null && !seen.has(id)) seen.set(id, a);
-      }
-
-      if (!scheme) break; // modo sin paginado: salir
-      if (!page || page.length === 0 || page.length < batch || seen.size >= maxWanted) break;
-
-      start += batch;
-      loops += 1;
-    }
-
-    if (seen.size > 0) break; // si este esquema funcionó, listo
-  }
-
-  return Array.from(seen.values());
-}
-
-function matchText(a, q) {
-  if (!q) return true;
-  const s = q.trim().toLowerCase();
-  if (!s) return true;
-  const id = String(a?.idArticulo ?? '').toLowerCase();
-  const name = String(a?.desArticulo ?? '').toLowerCase();
-  const codeBar = String(a?.codBarraUnidad ?? a?.codBarraBulto ?? '').toLowerCase();
-  return id.includes(s) || name.includes(s) || codeBar.includes(s);
-}
-
-module.exports = async function handler(req, res) {
   try {
-    const q = (req.query.q || '').toString();
-    const limit = Math.min(parseInt(req.query.limit || '30', 10) || 30, 100);
-    const cookie = await getSessionCookie(req);
-
-    // Traemos varias “páginas” hasta tener un buen universo para buscar
-    const all = await fetchAllArticles(cookie, 10000, 500);
-
-    // Filtrado por texto en el servidor (rápido y evita bajar TODO cada vez)
-    const filtered = (all || []).filter(a => !a?.anulado && matchText(a, q));
-
-    // Orden simple: primero coincidencia en inicio de nombre, luego por id
-    filtered.sort((a, b) => {
-      const an = (a.desArticulo || '').toLowerCase();
-      const bn = (b.desArticulo || '').toLowerCase();
-      const s  = q.toLowerCase();
-      const aStarts = an.startsWith(s) ? 0 : 1;
-      const bStarts = bn.startsWith(s) ? 0 : 1;
-      if (aStarts !== bStarts) return aStarts - bStarts;
-      return (a.idArticulo || 0) - (b.idArticulo || 0);
+    // 1) Login
+    const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ usuario: username, password: password }),
     });
 
-    res.status(200).json(filtered.slice(0, limit));
+    if (!loginResp.ok) {
+      const text = await loginResp.text();
+      return res
+        .status(loginResp.status)
+        .json({ error: text || 'Error de autenticación' });
+    }
+
+    const loginData = await loginResp.json();
+    const sessionId =
+      loginData.sessionId || loginData.token || loginData.access_token;
+
+    if (!sessionId) {
+      return res
+        .status(500)
+        .json({ error: 'Login OK pero sin sessionId en la respuesta' });
+    }
+
+    // 2) Traer artículos (sin filtros del lado Chess para evitar vacíos)
+    const artResp = await fetch(`${CHESS_API_BASE}/articulos/`, {
+      headers: { Cookie: sessionId },
+    });
+
+    if (!artResp.ok) {
+      const text = await artResp.text();
+      return res
+        .status(artResp.status)
+        .json({ error: text || 'Error consultando artículos' });
+    }
+
+    const artData = await artResp.json();
+
+    // 3) Normalizar estructura (a veces viene { eArticulos: [...] }, otras un array de bloques)
+    let all = [];
+    if (artData && Array.isArray(artData.eArticulos)) {
+      all = artData.eArticulos;
+    } else if (Array.isArray(artData)) {
+      for (const block of artData) {
+        if (block && Array.isArray(block.eArticulos)) {
+          all.push(...block.eArticulos);
+        }
+      }
+    } else {
+      // fallback por si viniera directamente como array de artículos
+      if (Array.isArray(artData)) all = artData;
+    }
+
+    // 4) Mapear a campos mínimos para el autocompletado
+    const minimal = all.map(a => ({
+      idArticulo: a.idArticulo,
+      desArticulo: a.desArticulo,
+      unidadesBulto: a.unidadesBulto ?? null,
+      pesable: !!a.pesable,
+      codBarraUnidad: a.codBarraUnidad || '',
+    }));
+
+    // 5) Filtro backend (case-insensitive, acentos básicos y por código)
+    let result = minimal;
+    if (q) {
+      const norm = s =>
+        (s || '')
+          .toString()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+
+      const nq = norm(q);
+      result = minimal.filter(item => {
+        const byDesc = norm(item.desArticulo).includes(nq);
+        const byId = item.idArticulo?.toString().includes(q);
+        const byEan = item.codBarraUnidad?.toString().includes(q);
+        return byDesc || byId || byEan;
+      });
+    }
+
+    // 6) Limitar
+    result = result.slice(0, limit);
+
+    return res.status(200).json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
+    return res
+      .status(500)
+      .json({ error: err?.message || 'Error conectando con ChessERP' });
   }
-};
+}
+
+module.exports = handler;
