@@ -267,6 +267,45 @@ function unwrapArray(payload, containerKeys = []) {
 }
 
 /**
+ * Busca dentro de un payload arbitrario el elemento cuyo ID coincide con el
+ * proporcionado. Si no encuentra coincidencia, devuelve la primera entrada con
+ * información relevante como fallback.
+ * @param {*} payload
+ * @param {string[]} containerKeys
+ * @param {string|number} targetId
+ * @returns {object|null}
+ */
+function findEntryById(payload, containerKeys = [], targetId) {
+  if (targetId === undefined || targetId === null) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const normalizedId = String(targetId).trim().toLowerCase();
+  if (!normalizedId) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const list = unwrapArray(payload, containerKeys);
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const candidateId = pickField(item, ARTICLE_ID_KEYS);
+    if (candidateId === undefined) continue;
+    const normalizedCandidate = String(candidateId).trim().toLowerCase();
+    if (normalizedCandidate === normalizedId) {
+      return item;
+    }
+  }
+
+  if (list.length) {
+    const fallback = resolvePrimaryEntry(list, containerKeys);
+    if (fallback) return fallback;
+    return list.find((item) => hasRelevantInfo(item)) || list[0] || null;
+  }
+
+  return resolvePrimaryEntry(payload, containerKeys);
+}
+
+/**
  * Devuelve un valor formateado o 'N/D' si está vacío.
  * @param {*} value
  * @returns {string|number}
@@ -396,6 +435,7 @@ async function handleSearch(event) {
       resolvePrimaryEntry(priceResp, PRICE_CONTAINER_KEYS) ||
       (Array.isArray(priceResp) ? priceResp[0] || null : priceResp);
     const stock =
+      findEntryById(stockResp, STOCK_CONTAINER_KEYS, articleId) ||
       resolvePrimaryEntry(stockResp, STOCK_CONTAINER_KEYS) ||
       (Array.isArray(stockResp) ? stockResp[0] || null : stockResp);
     renderResult({ article, price, stock });
