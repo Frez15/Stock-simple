@@ -126,7 +126,6 @@ async function handler(req, res) {
     const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
     url.searchParams.append('Fecha', hoy);
     url.searchParams.append('Lista', lista);
-    url.searchParams.append('CodArt', normalizedId);
     const priceResp = await fetch(url.toString(), {
       headers: {
         Cookie: sessionId,
@@ -142,6 +141,7 @@ async function handler(req, res) {
     if (!entries.length && listData && typeof listData === 'object') {
       entries = [listData];
     }
+    const normalizedId = String(id);
     const results = entries.filter((item) => {
       if (!item || typeof item !== 'object') return false;
       const candidateId = pickField(item, ARTICLE_ID_KEYS);
