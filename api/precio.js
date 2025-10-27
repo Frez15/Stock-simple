@@ -8,28 +8,14 @@ const ARTICLE_ID_KEYS = [
   'idarticulo',
   'idArticulo',
   'articulo',
-  'codarticulo',
-  'codArticulo',
-  'codart',
-  'CodArt',
-  'codArt',
-  'codigoarticulo',
-  'codigoArticulo',
-  'codigo',
   'id',
 ];
 
 const PRICE_CONTAINER_KEYS = [
   'precios',
   'lista',
-  'listas',
-  'listaPrecio',
-  'listaPrecios',
-  'dsListaPrecio',
-  'dsListaPrecios',
   'items',
   'detalle',
-  'detalles',
   'articulos',
   'data',
   'resultado',
@@ -48,71 +34,29 @@ function getValueCaseInsensitive(object, key) {
 
 function pickField(object, keys) {
   if (!object || typeof object !== 'object') return undefined;
-
-  const isUsableValue = (value) =>
-    value !== undefined &&
-    value !== null &&
-    value !== '' &&
-    (typeof value !== 'object' || value instanceof Date);
-
   const entries = Object.entries(object);
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
     const direct = entries.find(
       ([candidate]) => candidate.toLowerCase() === lowerKey
     );
-    if (direct && isUsableValue(direct[1])) {
+    if (direct && direct[1] !== undefined && direct[1] !== null) {
       return direct[1];
     }
   }
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
-    const partial = entries.find(([candidate, value]) => {
-      if (!isUsableValue(value)) return false;
-      return candidate.toLowerCase().includes(lowerKey);
-    });
+    const partial = entries.find(
+      ([candidate, value]) =>
+        candidate.toLowerCase().includes(lowerKey) &&
+        value !== undefined &&
+        value !== null
+    );
     if (partial) {
       return partial[1];
     }
   }
   return undefined;
-}
-
-function matchesKey(candidate, keys) {
-  const lowerCandidate = candidate.toLowerCase();
-  return keys.some((key) => {
-    const lowerKey = key.toLowerCase();
-    return (
-      lowerCandidate === lowerKey || lowerCandidate.includes(lowerKey)
-    );
-  });
-}
-
-function collectArticleIds(payload, keys, collector, visited = new Set()) {
-  if (payload === null || payload === undefined) return;
-  const type = typeof payload;
-  if (type !== 'object') {
-    return;
-  }
-  if (visited.has(payload)) return;
-  visited.add(payload);
-
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      collectArticleIds(item, keys, collector, visited);
-    }
-    return;
-  }
-
-  for (const [key, value] of Object.entries(payload)) {
-    if (value === undefined || value === null) continue;
-    if (typeof value === 'object') {
-      collectArticleIds(value, keys, collector, visited);
-      continue;
-    }
-    if (!matchesKey(key, keys)) continue;
-    collector.add(trimLeadingZeros(value));
-  }
 }
 
 function unwrapPriceEntries(payload) {
@@ -139,45 +83,6 @@ function unwrapPriceEntries(payload) {
   return [];
 }
 
-function normalizeArticleId(value) {
-  if (value === undefined || value === null) return '';
-  return String(value).trim();
-}
-
-function trimLeadingZeros(value) {
-  if (typeof value !== 'string') value = normalizeArticleId(value);
-  if (!value) return value;
-  const trimmed = value.replace(/^0+/, '');
-  return trimmed.length ? trimmed : '0';
-}
-
-async function requestPriceList(sessionId, baseUrl, params) {
-  const url = new URL(`${baseUrl}/listaPrecios/`);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
-    url.searchParams.append(key, value);
-  });
-  const requestUrl = url.toString();
-  console.log('[api/precio] listaPrecios query:', requestUrl);
-  const cookieValue =
-    typeof sessionId === 'string' && sessionId.includes('=')
-      ? sessionId
-      : `JSESSIONID=${sessionId}`;
-  const response = await fetch(requestUrl, {
-    headers: {
-      Cookie: cookieValue,
-      accept: 'application/json',
-    },
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(text || 'Error consultando precios');
-    error.status = response.status;
-    throw error;
-  }
-  return { data: await response.json(), requestUrl };
-}
-
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
@@ -193,8 +98,7 @@ async function handler(req, res) {
   const lista = list || '4';
   // Fecha en formato YYYY-MM-DD; si no se pasa se utiliza la actual
   const hoy = date || new Date().toISOString().split('T')[0];
-  const normalizedId = normalizeArticleId(id);
-  const comparableId = trimLeadingZeros(normalizedId);
+  const normalizedId = String(id);
   if (!username || !password) {
     return res
       .status(500)
@@ -219,64 +123,31 @@ async function handler(req, res) {
     // el nombre de la cookie, se envía el valor completo tal como lo
     // proporciona ChessERP en la cabecera Cookie. Esto es equivalente a
     // enviar "Cookie: JSESSIONID=xyz" cuando el valor ya incluye el prefijo.
-    const candidateIds = new Set();
-    candidateIds.add(normalizedId);
-    if (/^\d+$/.test(normalizedId)) {
-      const paddedSix = normalizedId.padStart(6, '0');
-      const paddedThirteen = normalizedId.padStart(13, '0');
-      candidateIds.add(paddedSix);
-      candidateIds.add(paddedThirteen);
+    const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
+    url.searchParams.append('Fecha', hoy);
+    url.searchParams.append('Lista', lista);
+    const priceResp = await fetch(url.toString(), {
+      headers: {
+        Cookie: sessionId,
+        accept: 'application/json',
+      },
+    });
+    if (!priceResp.ok) {
+      const text = await priceResp.text();
+      return res.status(priceResp.status).json({ error: text || 'Error consultando precios' });
     }
-
-    let results = [];
-
-    for (const candidate of candidateIds) {
-      const { data } = await requestPriceList(sessionId, CHESS_API_BASE, {
-        Fecha: hoy,
-        Lista: lista,
-        CodArt: candidate,
-      });
-      let entries = unwrapPriceEntries(data);
-      if (!entries.length && data && typeof data === 'object') {
-        entries = [data];
-      }
-      results = entries.filter((item) => {
-        if (!item || typeof item !== 'object') return false;
-        const collector = new Set();
-        const directId = pickField(item, ARTICLE_ID_KEYS);
-        if (directId !== undefined && directId !== null) {
-          collector.add(trimLeadingZeros(directId));
-        }
-        collectArticleIds(item, ARTICLE_ID_KEYS, collector);
-        return collector.has(comparableId);
-      });
-      if (results.length) break;
+    const listData = await priceResp.json();
+    let entries = unwrapPriceEntries(listData);
+    if (!entries.length && listData && typeof listData === 'object') {
+      entries = [listData];
     }
-
-    if (!results.length) {
-      const { data } = await requestPriceList(sessionId, CHESS_API_BASE, {
-        Fecha: hoy,
-        Lista: lista,
-      });
-      let entries = unwrapPriceEntries(data);
-      if (!entries.length && data && typeof data === 'object') {
-        entries = [data];
-      }
-      results = entries.filter((item) => {
-        if (!item || typeof item !== 'object') return false;
-        const collector = new Set();
-        const directId = pickField(item, ARTICLE_ID_KEYS);
-        if (directId !== undefined && directId !== null) {
-          collector.add(trimLeadingZeros(directId));
-        }
-        collectArticleIds(item, ARTICLE_ID_KEYS, collector);
-        return collector.has(comparableId);
-      });
-      if (!results.length && entries.length) {
-        results = entries.slice(0, 50);
-      }
-    }
-
+    const normalizedId = String(id);
+    const results = entries.filter((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const candidateId = pickField(item, ARTICLE_ID_KEYS);
+      if (candidateId === undefined || candidateId === null) return false;
+      return String(candidateId) === normalizedId;
+    });
     res.status(200).json(results);
   } catch (err) {
     const status = err.status || 500;
