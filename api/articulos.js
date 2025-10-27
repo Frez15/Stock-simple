@@ -1,155 +1,165 @@
-// /api/articulos.js
-// Autocomplete de artículos: login -> GET /articulos/ -> extrae robusto -> filtra por ?q= y limita por ?limit=.
-
+// /api/articulos - Autocomplete con paginación autodetectada
+// Soporta ?q= y ?limit= (tope de resultados).
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
 
-  // Credenciales fijas (tres erres)
-  const username = 'Desarrrollos';
+  const username = 'Desarrrollos'; // 3 erres
   const password = '1234';
 
-const q = (req.query.q || '').toString().trim();
-const limit = Math.min(parseInt(req.query.limit || '2000', 10) || 2000, 2000);
+  const API_PAGE_SIZE = 100;
+  const MAX_HARD_CAP = 5000;
 
   try {
-    // 1) Login
+    // Login
     const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ usuario: username, password: password }),
     });
-
     if (!loginResp.ok) {
-      const text = await loginResp.text();
       return res
         .status(loginResp.status)
-        .json({ error: text || 'Error de autenticación' });
+        .json({ error: (await loginResp.text()) || 'Error de autenticación' });
     }
-
     const loginData = await loginResp.json();
     const sessionId =
       loginData.sessionId || loginData.token || loginData.access_token;
+    if (!sessionId) return res.status(500).json({ error: 'Login sin sessionId' });
 
-    if (!sessionId) {
-      return res
-        .status(500)
-        .json({ error: 'Login OK pero sin sessionId en la respuesta' });
-    }
+    // Parámetros
+    const q = (req.query.q || '').toString().trim();
+    const userLimit = Math.min(
+      parseInt(req.query.limit || '2000', 10) || 2000,
+      MAX_HARD_CAP
+    );
 
-    // 2) Artículos (sin filtros del lado de Chess)
-    const artResp = await fetch(`${CHESS_API_BASE}/articulos/`, {
-      method: 'GET',
-      headers: {
-        Cookie: sessionId,            // ej: "JSESSIONID=...."
-        Accept: 'application/json',
-      },
-    });
-
-    if (!artResp.ok) {
-      const text = await artResp.text();
-      return res
-        .status(artResp.status)
-        .json({ error: text || 'Error consultando artículos' });
-    }
-
-    const artData = await artResp.json();
-
-    // 3) Extractor ultra-robusto: encuentra arrays de artículos en cualquier nivel
-    const extractArticles = (data) => {
-      const out = [];
-
-      const isArticleArray = (arr) =>
-        Array.isArray(arr) &&
-        arr.length > 0 &&
-        typeof arr[0] === 'object' &&
-        arr[0] !== null &&
-        ('idArticulo' in arr[0] || 'desArticulo' in arr[0]);
-
-      const walk = (node) => {
-        if (!node) return;
-        if (isArticleArray(node)) {
-          out.push(...node);
-          return;
+    // Helper para pedir una “página” con params arbitrarios
+    const fetchWithParams = async (paramsObj) => {
+      const url = new URL(`${CHESS_API_BASE}/articulos/`);
+      for (const [k, v] of Object.entries(paramsObj)) url.searchParams.set(k, v);
+      const r = await fetch(url.toString(), { headers: { Cookie: sessionId } });
+      if (!r.ok) throw new Error((await r.text()) || 'Error consultando artículos');
+      const data = await r.json();
+      let list = [];
+      if (data && Array.isArray(data.eArticulos)) list = data.eArticulos;
+      else if (Array.isArray(data)) {
+        for (const block of data) {
+          if (block && Array.isArray(block.eArticulos)) list.push(...block.eArticulos);
         }
-        if (Array.isArray(node)) {
-          for (const item of node) walk(item);
-          return;
-        }
-        if (typeof node === 'object') {
-          for (const [k, v] of Object.entries(node)) {
-            // pista por nombre de clave
-            if (
-              k.toLowerCase().includes('articulos') ||
-              k.toLowerCase().includes('earticulos')
-            ) {
-              if (isArticleArray(v)) {
-                out.push(...v);
-              } else {
-                walk(v);
-              }
-            } else {
-              walk(v);
-            }
-          }
-        }
-      };
-
-      walk(data);
-      return out;
+        if (!list.length) list = data; // por si viene plano
+      }
+      return list;
     };
 
-    let all = extractArticles(artData);
+    // Intento 1: paginación por “page + size”
+    const pageKeys = ['page', 'pagina', 'pageIndex', 'pageNumber', 'p'];
+    const sizeKeys = ['limit', 'size', 'pageSize', 'cantidad', 'per_page', 'take'];
 
-    // Si sigue vacío, devolvemos un diagnóstico mínimo para ver qué vino
-    if (!Array.isArray(all) || all.length === 0) {
-      return res.status(200).json({
-        items: [],
-        diagnostic: {
-          note:
-            'No se detectaron arrays de artículos en la respuesta. Te muestro una muestra del JSON para inspección.',
-          sample: JSON.stringify(artData, null, 2)?.slice(0, 2000),
-        },
-      });
+    let scheme = null; // {type:'page'|'offset', keyPage, keySize|keyOffset}
+    let first = [];
+    let second = [];
+
+    // probamos combinaciones hasta que la segunda "página" cambie
+    outer: for (const pk of pageKeys) {
+      for (const sk of sizeKeys) {
+        const p1 = await fetchWithParams({ [pk]: '1', [sk]: String(API_PAGE_SIZE) });
+        if (!p1.length) continue;
+        // pedir "página 2"
+        const p2 = await fetchWithParams({ [pk]: '2', [sk]: String(API_PAGE_SIZE) });
+        // si la 2da devuelve algo distinto, ya está
+        if (p2.length && (p2[0]?.idArticulo ?? p2[0]?.id) !== (p1[0]?.idArticulo ?? p1[0]?.id)) {
+          scheme = { type: 'page', keyPage: pk, keySize: sk };
+          first = p1; second = p2;
+          break outer;
+        }
+      }
     }
 
-    // 4) Map a campos mínimos
-    const minimal = all.map((a) => ({
-      idArticulo: a.idArticulo,
-      desArticulo: a.desArticulo,
-      unidadesBulto: a.unidadesBulto ?? null,
-      pesable: !!a.pesable,
-      codBarraUnidad: a.codBarraUnidad || '',
-    }));
+    // Intento 2: paginación por “offset + limit”
+    if (!scheme) {
+      const offKeys = ['offset', 'start', 'desde', 'desdeId', 'from'];
+      for (const ok of offKeys) {
+        const p1 = await fetchWithParams({ [ok]: '0', limit: String(API_PAGE_SIZE) });
+        if (!p1.length) continue;
+        const p2 = await fetchWithParams({
+          [ok]: String(API_PAGE_SIZE),
+          limit: String(API_PAGE_SIZE),
+        });
+        if (p2.length && (p2[0]?.idArticulo ?? p2[0]?.id) !== (p1[0]?.idArticulo ?? p1[0]?.id)) {
+          scheme = { type: 'offset', keyOffset: ok };
+          first = p1; second = p2;
+          break;
+        }
+      }
+    }
 
-    // 5) Filtro backend
-    let result = minimal;
+    // Si no detectamos esquema, devolvemos lo que haya (primer bloque de 100)
+    const collected = [];
+    const seen = new Set();
+
+    const pushBatch = (batch) => {
+      for (const it of batch) {
+        const id = it.idArticulo ?? it.id;
+        if (id != null && !seen.has(id)) {
+          seen.add(id);
+          collected.push(it);
+          if (collected.length >= userLimit) return true;
+        }
+      }
+      return false;
+    };
+
+    if (!scheme) {
+      // último recurso: una sola “página” (límite del backend)
+      if (!first.length) first = await fetchWithParams({});
+      pushBatch(first);
+    } else {
+      // ya tenemos p1 y p2; seguimos pidiendo
+      if (pushBatch(first)) return res.status(200).json(first.slice(0, userLimit));
+      if (pushBatch(second)) return res.status(200).json(collected.slice(0, userLimit));
+
+      if (scheme.type === 'page') {
+        let page = 3;
+        while (collected.length < userLimit) {
+          const batch = await fetchWithParams({
+            [scheme.keyPage]: String(page),
+            [scheme.keySize]: String(API_PAGE_SIZE),
+          });
+          if (!batch.length) break;
+          const hitCap = pushBatch(batch);
+          if (batch.length < API_PAGE_SIZE || hitCap) break;
+          page += 1;
+        }
+      } else {
+        let offset = API_PAGE_SIZE * 2;
+        while (collected.length < userLimit) {
+          const batch = await fetchWithParams({
+            [scheme.keyOffset]: String(offset),
+            limit: String(API_PAGE_SIZE),
+          });
+          if (!batch.length) break;
+          const hitCap = pushBatch(batch);
+          if (batch.length < API_PAGE_SIZE || hitCap) break;
+          offset += API_PAGE_SIZE;
+        }
+      }
+    }
+
+    // Filtro client-side
+    let result = collected;
     if (q) {
-      const norm = (s) =>
-        (s || '')
-          .toString()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .toLowerCase();
-      const nq = norm(q);
-
-      result = minimal.filter((item) => {
-        const byDesc = norm(item.desArticulo).includes(nq);
-        const byId = item.idArticulo?.toString().includes(q);
-        const byEan = item.codBarraUnidad?.toString().includes(q);
-        return byDesc || byId || byEan;
+      const qn = q.toLowerCase();
+      result = collected.filter((a) => {
+        const cod = String(a.idArticulo ?? '').toLowerCase();
+        const desc = String(a.desArticulo ?? '').toLowerCase();
+        return cod.includes(qn) || desc.includes(qn);
       });
     }
 
-    // 6) Limitar
-    result = result.slice(0, limit);
-
-    // Para el datalist te conviene devolver solo el array plano:
-    return res.status(200).json(result);
+    res.status(200).json(result.slice(0, userLimit));
   } catch (err) {
-    return res
-      .status(500)
-      .json({ error: err?.message || 'Error conectando con ChessERP' });
+    res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
   }
 }
 
