@@ -4,11 +4,17 @@
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Use the same credentials as the rest of the API functions. They are hard
-  // coded here because the deployment environment (Vercel) already protects
-  // the source code and necesitamos usar la cuenta que posee permisos sobre lista de precios.
-  const username = 'Desarrrollos';
-  const password = '1234';
+  // Use the same credentials as the rest of the API functions. They can be
+  // overridden via environment variables (e.g. CHESS_PRICE_USERNAME) so the
+  // deployment can supply an account with permisos sobre lista de precios.
+  const username =
+    process.env.CHESS_PRICE_USERNAME ||
+    process.env.CHESS_USERNAME ||
+    'Desarrrollos';
+  const password =
+    process.env.CHESS_PRICE_PASSWORD ||
+    process.env.CHESS_PASSWORD ||
+    '1234';
   const { id, lista, fecha } = req.query;
 
   if (!id) {
@@ -69,7 +75,9 @@ async function handler(req, res) {
         .map((item) => item && item.mensaje)
         .filter(Boolean)
         .join(' ');
-      return res.status(502).json({ error: message || 'Error consultando precio' });
+      const lowered = (message || '').toLowerCase();
+      const status = lowered.includes('no cuenta con acceso') ? 403 : 502;
+      return res.status(status).json({ error: message || 'Error consultando precio' });
     }
 
     let result = priceData;
