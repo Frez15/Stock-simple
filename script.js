@@ -104,6 +104,17 @@ const STOCK_UNITS_KEYS = [
   'cantidad',
 ];
 
+// ===================== NUEVO: helpers para PRECIOS ===================== //
+const PRICE_CONTAINER_KEYS = ['precios','lista','listaPrecios','items','data','resultado','resultados'];
+const PRICE_LISTA_KEYS    = ['lista','codLista','codigoLista','Lista','nombreLista','descripcionLista'];
+const PRICE_PUB_KEYS      = ['precio','precioLista','pLista','precioPublico','precioVenta','pVenta'];
+const PRICE_NETO_KEYS     = ['precioNeto','neto','pNeto'];
+const PRICE_IVA_KEYS      = ['iva','alicuotaIva','porcIva','porcentajeIva'];
+const PRICE_MONEDA_KEYS   = ['moneda','divisa'];
+const PRICE_FECHA_KEYS    = ['fecha','vigencia','fechaLista','vigenteDesde','Fecha'];
+
+// ====================================================================== //
+
 /**
  * Devuelve el primer valor no vacío de un objeto que coincida con las claves
  * especificadas. Se realiza la comparación de forma case-insensitive y, si no
@@ -329,8 +340,47 @@ async function fetchStock(articleId) {
   return response.json();
 }
 
+// ===================== NUEVO: precios ===================== //
+
+function formatTodayISO() {
+  // Usa la fecha local del navegador (Argentina: UTC-3)
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /**
- * Muestra en pantalla la información del artículo y stock recibidos.
+ * Solicita el precio de un artículo (siempre enviando fecha).
+ * @param {string|number} articleId
+ * @param {string} lista  - default '4'
+ * @param {string} fecha  - 'YYYY-MM-DD' (si no viene, se fuerza a hoy)
+ */
+async function fetchPrice(articleId, lista = '4', fecha) {
+  const f = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : formatTodayISO();
+  const p = new URLSearchParams({ id: articleId, lista: String(lista), fecha: f });
+  const resp = await fetch(`/api/precio?${p.toString()}`);
+  if (!resp.ok) throw new Error('Error consultando precio');
+  return resp.json(); // lista (0..N)
+}
+
+/**
+ * Elige una entrada de precio “usable” del payload.
+ */
+function pickPriceEntry(payload) {
+  const arr = unwrapArray(payload, PRICE_CONTAINER_KEYS);
+  for (const it of arr) {
+    const pl = pickField(it, PRICE_PUB_KEYS) ?? pickField(it, PRICE_NETO_KEYS);
+    if (pl !== undefined) return it;
+  }
+  return resolvePrimaryEntry(payload, PRICE_CONTAINER_KEYS);
+}
+
+// ========================================================== //
+
+/**
+ * Muestra en pantalla la información del artículo, stock y precio recibidos.
  * Si no hay datos, oculta el div de resultados.
  */
 function renderResult(data) {
@@ -342,6 +392,7 @@ function renderResult(data) {
 
   const article = resolvePrimaryEntry(data.article, ARTICLE_CONTAINER_KEYS) || null;
   const stock = resolvePrimaryEntry(data.stock, STOCK_CONTAINER_KEYS) || null;
+  const price = data.price ? pickPriceEntry(data.price) : null;
 
   const description = pickField(article, DESCRIPTION_KEYS) || 'Artículo sin descripción';
   let unitsPerPack = pickField(article, UNITS_PER_PACK_KEYS);
@@ -359,11 +410,25 @@ function renderResult(data) {
   const stockBultos = pickField(stock, STOCK_BULTOS_KEYS);
   const stockUnidades = pickField(stock, STOCK_UNITS_KEYS);
 
+  const pricePublico  = price && (pickField(price, PRICE_PUB_KEYS)  ?? pickField(price, PRICE_NETO_KEYS));
+  const priceNeto     = price && pickField(price, PRICE_NETO_KEYS);
+  const listaName     = price && pickField(price, PRICE_LISTA_KEYS);
+  const iva           = price && pickField(price, PRICE_IVA_KEYS);
+  const moneda        = price && pickField(price, PRICE_MONEDA_KEYS);
+  const fechaVigencia = price && (pickField(price, PRICE_FECHA_KEYS) || formatTodayISO());
+
   resultDiv.innerHTML = `
     <h3>${description}</h3>
     <p><strong>Unidades por bulto:</strong> ${displayValue(unitsPerPack)}</p>
     <p><strong>Stock en bultos:</strong> ${displayValue(stockBultos)}</p>
     <p><strong>Stock en unidades:</strong> ${displayValue(stockUnidades)}</p>
+    <hr>
+    <p><strong>Lista:</strong> ${displayValue(listaName)}</p>
+    <p><strong>Fecha de vigencia:</strong> ${displayValue(fechaVigencia)}</p>
+    <p><strong>Precio vigente:</strong> ${displayValue(pricePublico)}</p>
+    <p><strong>Precio neto:</strong> ${displayValue(priceNeto)}</p>
+    <p><strong>IVA:</strong> ${displayValue(iva)}</p>
+    <p><strong>Moneda:</strong> ${displayValue(moneda)}</p>
   `;
   resultDiv.style.display = 'block';
 }
@@ -377,10 +442,15 @@ async function handleSearch(event) {
   const articleId = document.getElementById('articleInput').value.trim();
   if (!articleId) return;
   try {
-    const [articulosResp, stockResp] = await Promise.all([
+    // Fecha SIEMPRE obligatoria → usamos hoy local
+    const today = formatTodayISO();
+
+    const [articulosResp, stockResp, preciosResp] = await Promise.all([
       fetchArticle(articleId),
       fetchStock(articleId),
+      fetchPrice(articleId, '4', today),
     ]);
+
     const article =
       resolvePrimaryEntry(articulosResp, ARTICLE_CONTAINER_KEYS) ||
       (Array.isArray(articulosResp) ? articulosResp[0] : articulosResp);
@@ -388,7 +458,9 @@ async function handleSearch(event) {
       findEntryById(stockResp, STOCK_CONTAINER_KEYS, articleId) ||
       resolvePrimaryEntry(stockResp, STOCK_CONTAINER_KEYS) ||
       (Array.isArray(stockResp) ? stockResp[0] || null : stockResp);
-    renderResult({ article, stock });
+    const price = pickPriceEntry(preciosResp) || (Array.isArray(preciosResp) ? preciosResp[0] : preciosResp);
+
+    renderResult({ article, stock, price });
   } catch (err) {
     alert(err.message);
     console.error(err);
