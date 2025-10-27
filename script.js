@@ -1,4 +1,4 @@
-// Frontend de la aplicación de consulta de stock y precios.
+// Frontend de la aplicación de consulta de artículos y stock.
 //
 // Esta versión utiliza funciones serverless alojadas en `/api` dentro del mismo
 // proyecto para comunicarse con ChessERP. De este modo el navegador no
@@ -23,17 +23,6 @@ const ARTICLE_CONTAINER_KEYS = [
   'lista',
   'value',
 ];
-const PRICE_CONTAINER_KEYS = [
-  'articulos',
-  'articulo',
-  'precios',
-  'items',
-  'lista',
-  'detalle',
-  'data',
-  'resultado',
-  'resultados',
-];
 const STOCK_CONTAINER_KEYS = [
   'stock',
   'stocks',
@@ -53,6 +42,12 @@ const ARTICLE_ID_KEYS = [
   'articulo',
   'codarticulo',
   'codArticulo',
+  'codart',
+  'CodArt',
+  'codArt',
+  'codigoarticulo',
+  'codigoArticulo',
+  'codigo',
 ];
 const DESCRIPTION_KEYS = [
   'desarticulo',
@@ -83,27 +78,6 @@ const UNITS_PER_PACK_KEYS = [
   'cantidadBulto',
   'cantidadBultos',
   'presentacion',
-];
-const PRICE_BASE_KEYS = [
-  'preciobase',
-  'precioBase',
-  'preciolista',
-  'precioLista',
-  'precio',
-  'precioSinIva',
-  'importeBase',
-  'importe',
-];
-const PRICE_FINAL_KEYS = [
-  'preciofinal',
-  'precioFinal',
-  'precioneto',
-  'precioNeto',
-  'precioconiva',
-  'precioConIva',
-  'precio',
-  'importeFinal',
-  'importeConIva',
 ];
 const STOCK_BULTOS_KEYS = [
   'cantbultos',
@@ -141,6 +115,10 @@ const STOCK_UNITS_KEYS = [
  */
 function pickField(source, keys) {
   if (!source || typeof source !== 'object') return undefined;
+
+  const isUsableValue = (value) =>
+    value !== undefined && value !== null && value !== '' && typeof value !== 'object';
+
   const entries = Object.entries(source);
   const loweredEntries = entries.map(([k, v]) => [k.toLowerCase(), v]);
   for (const key of keys) {
@@ -148,14 +126,14 @@ function pickField(source, keys) {
     const directMatch = loweredEntries.find(([entryKey]) => entryKey === lowerKey);
     if (directMatch) {
       const value = directMatch[1];
-      if (value !== undefined && value !== null && value !== '') return value;
+      if (isUsableValue(value)) return value;
     }
   }
   // Segundo intento: coincidencia parcial (útil para claves como `cantidadXBulto`).
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
     const partialMatch = entries.find(([entryKey, value]) => {
-      if (value === undefined || value === null || value === '') return false;
+      if (!isUsableValue(value)) return false;
       return entryKey.toLowerCase().includes(lowerKey);
     });
     if (partialMatch) {
@@ -171,8 +149,6 @@ function hasRelevantInfo(candidate) {
     ARTICLE_ID_KEYS,
     DESCRIPTION_KEYS,
     UNITS_PER_PACK_KEYS,
-    PRICE_BASE_KEYS,
-    PRICE_FINAL_KEYS,
     STOCK_BULTOS_KEYS,
     STOCK_UNITS_KEYS,
   ];
@@ -181,7 +157,7 @@ function hasRelevantInfo(candidate) {
 
 /**
  * Dado un payload con estructura variable, intenta obtener el elemento
- * principal (primer artículo, precio o stock). Se exploran las claves
+ * principal (primer artículo o stock). Se exploran las claves
  * indicadas y cualquier otro valor que contenga objetos o arrays.
  * @param {*} payload
  * @param {string[]} containerKeys
@@ -203,11 +179,9 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   for (const key of containerKeys) {
-    const directKey = Object.keys(payload).find(
-      (entryKey) => entryKey.toLowerCase() === key.toLowerCase()
-    );
-    if (directKey !== undefined) {
-      const resolved = resolvePrimaryEntry(payload[directKey], containerKeys);
+    const directValue = getValueCaseInsensitive(payload, key);
+    if (directValue !== undefined) {
+      const resolved = resolvePrimaryEntry(directValue, containerKeys);
       if (resolved && hasRelevantInfo(resolved)) return resolved;
     }
   }
@@ -220,6 +194,15 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   return null;
+}
+
+function getValueCaseInsensitive(payload, key) {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const lowerKey = key.toLowerCase();
+  const matchedKey = Object.keys(payload).find(
+    (entryKey) => entryKey.toLowerCase() === lowerKey
+  );
+  return matchedKey !== undefined ? payload[matchedKey] : undefined;
 }
 
 /**
@@ -235,8 +218,9 @@ function unwrapArray(payload, containerKeys = []) {
   if (Array.isArray(payload)) return payload;
 
   for (const key of containerKeys) {
-    if (payload[key] !== undefined) {
-      const nested = unwrapArray(payload[key], containerKeys);
+    const candidate = getValueCaseInsensitive(payload, key);
+    if (candidate !== undefined) {
+      const nested = unwrapArray(candidate, containerKeys);
       if (nested.length) return nested;
     }
   }
@@ -245,9 +229,52 @@ function unwrapArray(payload, containerKeys = []) {
     if (Array.isArray(value)) {
       return value;
     }
+    if (value && typeof value === 'object') {
+      const nested = unwrapArray(value, containerKeys);
+      if (nested.length) return nested;
+    }
   }
 
-  return typeof payload === 'object' ? [payload] : [];
+  return hasRelevantInfo(payload) ? [payload] : [];
+}
+
+/**
+ * Busca dentro de un payload arbitrario el elemento cuyo ID coincide con el
+ * proporcionado. Si no encuentra coincidencia, devuelve la primera entrada con
+ * información relevante como fallback.
+ * @param {*} payload
+ * @param {string[]} containerKeys
+ * @param {string|number} targetId
+ * @returns {object|null}
+ */
+function findEntryById(payload, containerKeys = [], targetId) {
+  if (targetId === undefined || targetId === null) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const normalizedId = String(targetId).trim().toLowerCase();
+  if (!normalizedId) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const list = unwrapArray(payload, containerKeys);
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const candidateId = pickField(item, ARTICLE_ID_KEYS);
+    if (candidateId === undefined) continue;
+    const normalizedCandidate = String(candidateId).trim().toLowerCase();
+    if (normalizedCandidate === normalizedId) {
+      return item;
+    }
+  }
+
+  if (list.length) {
+    const fallback = resolvePrimaryEntry(list, containerKeys);
+    if (fallback) return fallback;
+    return list.find((item) => hasRelevantInfo(item)) || list[0] || null;
+  }
+
+  return resolvePrimaryEntry(payload, containerKeys);
 }
 
 /**
@@ -303,20 +330,7 @@ async function fetchStock(articleId) {
 }
 
 /**
- * Solicita el precio de un artículo al servidor backend. Por defecto utiliza
- * la lista de precios 4 y la fecha actual.
- * @param {string|number} articleId
- */
-async function fetchPrice(articleId) {
-  const response = await fetch(`/api/precio?id=${encodeURIComponent(articleId)}`);
-  if (!response.ok) {
-    throw new Error('Error consultando precio');
-  }
-  return response.json();
-}
-
-/**
- * Muestra en pantalla la información del artículo, precio y stock recibidos.
+ * Muestra en pantalla la información del artículo y stock recibidos.
  * Si no hay datos, oculta el div de resultados.
  */
 function renderResult(data) {
@@ -327,7 +341,6 @@ function renderResult(data) {
   }
 
   const article = resolvePrimaryEntry(data.article, ARTICLE_CONTAINER_KEYS) || null;
-  const price = resolvePrimaryEntry(data.price, PRICE_CONTAINER_KEYS) || null;
   const stock = resolvePrimaryEntry(data.stock, STOCK_CONTAINER_KEYS) || null;
 
   const description = pickField(article, DESCRIPTION_KEYS) || 'Artículo sin descripción';
@@ -343,16 +356,12 @@ function renderResult(data) {
       ]);
     }
   }
-  const priceBase = pickField(price, PRICE_BASE_KEYS);
-  const priceFinal = pickField(price, PRICE_FINAL_KEYS);
   const stockBultos = pickField(stock, STOCK_BULTOS_KEYS);
   const stockUnidades = pickField(stock, STOCK_UNITS_KEYS);
 
   resultDiv.innerHTML = `
     <h3>${description}</h3>
     <p><strong>Unidades por bulto:</strong> ${displayValue(unitsPerPack)}</p>
-    <p><strong>Precio base:</strong> ${displayValue(priceBase)}</p>
-    <p><strong>Precio final:</strong> ${displayValue(priceFinal)}</p>
     <p><strong>Stock en bultos:</strong> ${displayValue(stockBultos)}</p>
     <p><strong>Stock en unidades:</strong> ${displayValue(stockUnidades)}</p>
   `;
@@ -368,21 +377,18 @@ async function handleSearch(event) {
   const articleId = document.getElementById('articleInput').value.trim();
   if (!articleId) return;
   try {
-    const [articulosResp, priceResp, stockResp] = await Promise.all([
+    const [articulosResp, stockResp] = await Promise.all([
       fetchArticle(articleId),
-      fetchPrice(articleId),
       fetchStock(articleId),
     ]);
     const article =
       resolvePrimaryEntry(articulosResp, ARTICLE_CONTAINER_KEYS) ||
       (Array.isArray(articulosResp) ? articulosResp[0] : articulosResp);
-    const price =
-      resolvePrimaryEntry(priceResp, PRICE_CONTAINER_KEYS) ||
-      (Array.isArray(priceResp) ? priceResp[0] || null : priceResp);
     const stock =
+      findEntryById(stockResp, STOCK_CONTAINER_KEYS, articleId) ||
       resolvePrimaryEntry(stockResp, STOCK_CONTAINER_KEYS) ||
       (Array.isArray(stockResp) ? stockResp[0] || null : stockResp);
-    renderResult({ article, price, stock });
+    renderResult({ article, stock });
   } catch (err) {
     alert(err.message);
     console.error(err);
