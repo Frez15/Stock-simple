@@ -1,11 +1,7 @@
-// Frontend de la aplicación de consulta de artículos y stock.
+// Frontend de la aplicación de consulta de artículos, stock y precio.
 //
-// Esta versión utiliza funciones serverless alojadas en `/api` dentro del mismo
-// proyecto para comunicarse con ChessERP. De este modo el navegador no
-// realiza peticiones cruzadas (CORS) hacia `simpledistribuciones.chesserp.com`,
-// sino que todas las llamadas se hacen a nuestro propio dominio. Las
-// funciones del directorio `api` manejan la autenticación y las llamadas a
-// ChessERP en el servidor, evitando los problemas de CORS.
+// Usa funciones serverless en /api (articulo, articulos, stock, precio) para
+// comunicarse con ChessERP, evitando CORS y exponiendo solo endpoints propios.
 
 // Lista de artículos en memoria para autocompletar
 let articlesList = null;
@@ -104,25 +100,22 @@ const STOCK_UNITS_KEYS = [
   'cantidad',
 ];
 
-// ===================== NUEVO: helpers para PRECIOS ===================== //
+// ======== NUEVO: helpers para PRECIOS ======== //
 const PRICE_CONTAINER_KEYS = ['precios','lista','listaPrecios','items','data','resultado','resultados'];
-const PRICE_LISTA_KEYS    = ['lista','codLista','codigoLista','Lista','nombreLista','descripcionLista'];
-const PRICE_PUB_KEYS      = ['precio','precioLista','pLista','precioPublico','precioVenta','pVenta'];
-const PRICE_NETO_KEYS     = ['precioNeto','neto','pNeto'];
-const PRICE_IVA_KEYS      = ['iva','alicuotaIva','porcIva','porcentajeIva'];
-const PRICE_MONEDA_KEYS   = ['moneda','divisa'];
-const PRICE_FECHA_KEYS    = ['fecha','vigencia','fechaLista','vigenteDesde','Fecha'];
-
-// ====================================================================== //
+const PRICE_FINAL_KEYS     = ['Precio_Final','precioFinal'];
+const UNIDADES_BULTO_KEYS  = ['Unidades_Bulto','unidadBulto','unidadesBulto'];
+// ============================================= //
 
 /**
- * Devuelve el primer valor no vacío de un objeto que coincida con las claves
- * especificadas. Se realiza la comparación de forma case-insensitive y, si no
- * se encuentra un match exacto, se buscan claves que contengan el nombre
- * proporcionado (por ejemplo `cantidadXBulto`).
- * @param {object|null|undefined} source
- * @param {string[]} keys
- * @returns {*|undefined}
+ * Formatea números con 2 decimales en es-AR.
+ */
+function formatNumber(n) {
+  if (n === undefined || n === null || n === '' || isNaN(Number(n))) return 'N/D';
+  return new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n));
+}
+
+/**
+ * Devuelve el primer valor no vacío de un objeto que coincida con las claves especificadas.
  */
 function pickField(source, keys) {
   if (!source || typeof source !== 'object') return undefined;
@@ -140,7 +133,7 @@ function pickField(source, keys) {
       if (isUsableValue(value)) return value;
     }
   }
-  // Segundo intento: coincidencia parcial (útil para claves como `cantidadXBulto`).
+  // Segundo intento: coincidencia parcial
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
     const partialMatch = entries.find(([entryKey, value]) => {
@@ -166,14 +159,6 @@ function hasRelevantInfo(candidate) {
   return keyGroups.some((keys) => pickField(candidate, keys) !== undefined);
 }
 
-/**
- * Dado un payload con estructura variable, intenta obtener el elemento
- * principal (primer artículo o stock). Se exploran las claves
- * indicadas y cualquier otro valor que contenga objetos o arrays.
- * @param {*} payload
- * @param {string[]} containerKeys
- * @returns {object|null}
- */
 function resolvePrimaryEntry(payload, containerKeys = []) {
   if (!payload) return null;
   if (Array.isArray(payload)) {
@@ -185,9 +170,7 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
   if (typeof payload !== 'object') return null;
 
-  if (hasRelevantInfo(payload)) {
-    return payload;
-  }
+  if (hasRelevantInfo(payload)) return payload;
 
   for (const key of containerKeys) {
     const directValue = getValueCaseInsensitive(payload, key);
@@ -196,14 +179,12 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
       if (resolved && hasRelevantInfo(resolved)) return resolved;
     }
   }
-
   for (const value of Object.values(payload)) {
     if (value && typeof value === 'object') {
       const resolved = resolvePrimaryEntry(value, containerKeys);
       if (resolved && hasRelevantInfo(resolved)) return resolved;
     }
   }
-
   return null;
 }
 
@@ -216,14 +197,6 @@ function getValueCaseInsensitive(payload, key) {
   return matchedKey !== undefined ? payload[matchedKey] : undefined;
 }
 
-/**
- * Convierte un payload arbitrario en una lista de elementos para autocompletado.
- * Busca arrays en las claves indicadas y, si no encuentra ninguno, devuelve un
- * array con el propio payload (cuando contiene información útil).
- * @param {*} payload
- * @param {string[]} containerKeys
- * @returns {object[]}
- */
 function unwrapArray(payload, containerKeys = []) {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
@@ -235,79 +208,49 @@ function unwrapArray(payload, containerKeys = []) {
       if (nested.length) return nested;
     }
   }
-
   for (const value of Object.values(payload)) {
-    if (Array.isArray(value)) {
-      return value;
-    }
+    if (Array.isArray(value)) return value;
     if (value && typeof value === 'object') {
       const nested = unwrapArray(value, containerKeys);
       if (nested.length) return nested;
     }
   }
-
   return hasRelevantInfo(payload) ? [payload] : [];
 }
 
-/**
- * Busca dentro de un payload arbitrario el elemento cuyo ID coincide con el
- * proporcionado. Si no encuentra coincidencia, devuelve la primera entrada con
- * información relevante como fallback.
- * @param {*} payload
- * @param {string[]} containerKeys
- * @param {string|number} targetId
- * @returns {object|null}
- */
 function findEntryById(payload, containerKeys = [], targetId) {
   if (targetId === undefined || targetId === null) {
     return resolvePrimaryEntry(payload, containerKeys);
   }
-
   const normalizedId = String(targetId).trim().toLowerCase();
   if (!normalizedId) {
     return resolvePrimaryEntry(payload, containerKeys);
   }
-
   const list = unwrapArray(payload, containerKeys);
   for (const item of list) {
     if (!item || typeof item !== 'object') continue;
     const candidateId = pickField(item, ARTICLE_ID_KEYS);
     if (candidateId === undefined) continue;
     const normalizedCandidate = String(candidateId).trim().toLowerCase();
-    if (normalizedCandidate === normalizedId) {
-      return item;
-    }
+    if (normalizedCandidate === normalizedId) return item;
   }
-
   if (list.length) {
     const fallback = resolvePrimaryEntry(list, containerKeys);
     if (fallback) return fallback;
     return list.find((item) => hasRelevantInfo(item)) || list[0] || null;
   }
-
   return resolvePrimaryEntry(payload, containerKeys);
 }
 
-/**
- * Devuelve un valor formateado o 'N/D' si está vacío.
- * @param {*} value
- * @returns {string|number}
- */
 function displayValue(value) {
   return value === undefined || value === null || value === '' ? 'N/D' : value;
 }
 
-/**
- * Descarga la lista de artículos desde el servidor backend (`/api/articulos`).
- * Este endpoint devuelve todos los artículos no anulados. Se almacena en
- * `articlesList` para reutilizar en las sugerencias.
- */
+// =================== Requests al backend =================== //
 async function loadAllArticles() {
   if (articlesList) return;
   const response = await fetch('/api/articulos');
-  if (!response.ok) {
-    throw new Error('Error al obtener artículos');
-  }
+  if (!response.ok) throw new Error('Error al obtener artículos');
   const data = await response.json();
   const rawList = unwrapArray(data, ARTICLE_CONTAINER_KEYS);
   articlesList = rawList
@@ -315,73 +258,38 @@ async function loadAllArticles() {
     .filter((item) => item && typeof item === 'object');
 }
 
-/**
- * Solicita los datos de un artículo por su ID al servidor backend.
- * @param {string|number} articleId
- */
 async function fetchArticle(articleId) {
   const response = await fetch(`/api/articulo?id=${encodeURIComponent(articleId)}`);
-  if (!response.ok) {
-    throw new Error('Error consultando artículo');
-  }
+  if (!response.ok) throw new Error('Error consultando artículo');
   return response.json();
 }
 
-/**
- * Solicita el stock de un artículo al servidor backend. El depósito predeterminado
- * se define en la función del backend.
- * @param {string|number} articleId
- */
 async function fetchStock(articleId) {
   const response = await fetch(`/api/stock?id=${encodeURIComponent(articleId)}`);
-  if (!response.ok) {
-    throw new Error('Error consultando stock');
-  }
+  if (!response.ok) throw new Error('Error consultando stock');
   return response.json();
 }
 
-// ===================== NUEVO: precios ===================== //
-
-function formatTodayISO() {
-  // Usa la fecha local del navegador (Argentina: UTC-3)
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-/**
- * Solicita el precio de un artículo (siempre enviando fecha).
- * @param {string|number} articleId
- * @param {string} lista  - default '4'
- * @param {string} fecha  - 'YYYY-MM-DD' (si no viene, se fuerza a hoy)
- */
-async function fetchPrice(articleId, lista = '4', fecha) {
-  const f = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : formatTodayISO();
-  const p = new URLSearchParams({ id: articleId, lista: String(lista), fecha: f });
-  const resp = await fetch(`/api/precio?${p.toString()}`);
+// El backend fuerza lista=4 y fecha=hoy; acá solo pasamos id
+async function fetchPrice(articleId) {
+  const resp = await fetch(`/api/precio?id=${encodeURIComponent(articleId)}`);
   if (!resp.ok) throw new Error('Error consultando precio');
   return resp.json(); // lista (0..N)
 }
 
-/**
- * Elige una entrada de precio “usable” del payload.
- */
 function pickPriceEntry(payload) {
   const arr = unwrapArray(payload, PRICE_CONTAINER_KEYS);
+  // Devolvemos el primero que tenga Precio_Final
   for (const it of arr) {
-    const pl = pickField(it, PRICE_PUB_KEYS) ?? pickField(it, PRICE_NETO_KEYS);
-    if (pl !== undefined) return it;
+    const pf = pickField(it, PRICE_FINAL_KEYS);
+    if (pf !== undefined) return it;
   }
   return resolvePrimaryEntry(payload, PRICE_CONTAINER_KEYS);
 }
-
-// ========================================================== //
+// =========================================================== //
 
 /**
- * Muestra en pantalla la información del artículo, stock y precio recibidos.
- * Si no hay datos, oculta el div de resultados.
+ * Muestra en pantalla la info del artículo, stock y precio.
  */
 function renderResult(data) {
   const resultDiv = document.getElementById('result');
@@ -391,10 +299,12 @@ function renderResult(data) {
   }
 
   const article = resolvePrimaryEntry(data.article, ARTICLE_CONTAINER_KEYS) || null;
-  const stock = resolvePrimaryEntry(data.stock, STOCK_CONTAINER_KEYS) || null;
-  const price = data.price ? pickPriceEntry(data.price) : null;
+  const stock   = resolvePrimaryEntry(data.stock,   STOCK_CONTAINER_KEYS)   || null;
+  const price   = data.price ? pickPriceEntry(data.price) : null;
 
   const description = pickField(article, DESCRIPTION_KEYS) || 'Artículo sin descripción';
+
+  // Unidades por bulto (del artículo) con fallback en 'presentacion'
   let unitsPerPack = pickField(article, UNITS_PER_PACK_KEYS);
   if (unitsPerPack === undefined) {
     const presentacion = pickField(article, ['presentacion']);
@@ -407,15 +317,22 @@ function renderResult(data) {
       ]);
     }
   }
-  const stockBultos = pickField(stock, STOCK_BULTOS_KEYS);
+
+  const stockBultos   = pickField(stock, STOCK_BULTOS_KEYS);
   const stockUnidades = pickField(stock, STOCK_UNITS_KEYS);
 
-  const pricePublico  = price && (pickField(price, PRICE_PUB_KEYS)  ?? pickField(price, PRICE_NETO_KEYS));
-  const priceNeto     = price && pickField(price, PRICE_NETO_KEYS);
-  const listaName     = price && pickField(price, PRICE_LISTA_KEYS);
-  const iva           = price && pickField(price, PRICE_IVA_KEYS);
-  const moneda        = price && pickField(price, PRICE_MONEDA_KEYS);
-  const fechaVigencia = price && (pickField(price, PRICE_FECHA_KEYS) || formatTodayISO());
+  // ======== NUEVO: precio x bulto y unitario ======== //
+  const precioFinal     = price && pickField(price, PRICE_FINAL_KEYS);
+  const unidadesBultoPx = price && pickField(price, UNIDADES_BULTO_KEYS);
+  const unidadesParaUnit = (unidadesBultoPx !== undefined && !isNaN(Number(unidadesBultoPx)))
+    ? Number(unidadesBultoPx)
+    : (unitsPerPack !== undefined && !isNaN(Number(unitsPerPack)) ? Number(unitsPerPack) : null);
+
+  let precioUnitario = null;
+  if (precioFinal !== undefined && unidadesParaUnit && Number(unidadesParaUnit) !== 0) {
+    precioUnitario = Number(precioFinal) / Number(unidadesParaUnit);
+  }
+  // =================================================== //
 
   resultDiv.innerHTML = `
     <h3>${description}</h3>
@@ -423,32 +340,24 @@ function renderResult(data) {
     <p><strong>Stock en bultos:</strong> ${displayValue(stockBultos)}</p>
     <p><strong>Stock en unidades:</strong> ${displayValue(stockUnidades)}</p>
     <hr>
-    <p><strong>Lista:</strong> ${displayValue(listaName)}</p>
-    <p><strong>Fecha de vigencia:</strong> ${displayValue(fechaVigencia)}</p>
-    <p><strong>Precio vigente:</strong> ${displayValue(pricePublico)}</p>
-    <p><strong>Precio neto:</strong> ${displayValue(priceNeto)}</p>
-    <p><strong>IVA:</strong> ${displayValue(iva)}</p>
-    <p><strong>Moneda:</strong> ${displayValue(moneda)}</p>
+    <p><strong>Precio x bulto:</strong> ${formatNumber(precioFinal)}</p>
+    <p><strong>Precio unitario:</strong> ${formatNumber(precioUnitario)}</p>
   `;
   resultDiv.style.display = 'block';
 }
 
 /**
- * Maneja el evento de búsqueda. Obtiene el ID ingresado, solicita datos al
- * backend y muestra los resultados.
+ * Maneja el evento de búsqueda. Obtiene el ID ingresado, solicita datos al backend y muestra los resultados.
  */
 async function handleSearch(event) {
   event.preventDefault();
   const articleId = document.getElementById('articleInput').value.trim();
   if (!articleId) return;
   try {
-    // Fecha SIEMPRE obligatoria → usamos hoy local
-    const today = formatTodayISO();
-
     const [articulosResp, stockResp, preciosResp] = await Promise.all([
       fetchArticle(articleId),
       fetchStock(articleId),
-      fetchPrice(articleId, '4', today),
+      fetchPrice(articleId),
     ]);
 
     const article =
@@ -471,9 +380,7 @@ async function handleSearch(event) {
 // Asignamos el manejador al formulario de búsqueda
 document.getElementById('searchForm').addEventListener('submit', handleSearch);
 
-// Listener para autocompletado: cuando el usuario escribe, filtramos la lista
-// de artículos y mostramos las primeras 5 coincidencias en el datalist. Si
-// todavía no hemos descargado la lista completa la solicitamos al backend.
+// Autocompletado: filtra coincidencias por descripción
 document.getElementById('articleInput').addEventListener('input', async (e) => {
   const term = e.target.value.trim().toLowerCase();
   const datalist = document.getElementById('articleSuggestions');
