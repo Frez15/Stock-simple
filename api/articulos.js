@@ -10,7 +10,7 @@ async function handler(req, res) {
   const password = '1234';
 
   const q = (req.query.q || '').toString().trim();
-  const limit = Math.min(parseInt(req.query.limit || '10', 10) || 10, 100);
+  const limit = Math.min(parseInt(req.query.limit || '15', 10) || 15, 100);
 
   try {
     // 1) Login
