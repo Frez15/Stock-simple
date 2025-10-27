@@ -104,6 +104,55 @@ const STOCK_UNITS_KEYS = [
   'cantidad',
 ];
 
+const PRICE_CONTAINER_KEYS = [
+  'dsListaPreciosApi',
+  'listaPrecios',
+  'listaPreciosVigentes',
+  'listaPrecio',
+  'lista',
+  'precios',
+  'data',
+];
+const PRICE_FINAL_KEYS = [
+  'prefin',
+  'preciofinal',
+  'precioFinal',
+  'precio',
+  'precioBase',
+  'Precio Final',
+];
+const PRICE_LIST_CODE_KEYS = [
+  'listaspre',
+  'lista',
+  'codigolistaprecio',
+  'codigoLista',
+  'codLista',
+];
+const PRICE_LIST_DESCRIPTION_KEYS = [
+  'titulis',
+  'descripcionlista',
+  'descripcionLista',
+  'listaDescripcion',
+  'descripcion',
+];
+const PRICE_VALID_FROM_KEYS = [
+  'fhvigenciadesde',
+  'vigentedesde',
+  'vigenciaDesde',
+  'desde',
+];
+const PRICE_VALID_TO_KEYS = [
+  'fhvigenciahasta',
+  'vigentehasta',
+  'vigenciaHasta',
+  'hasta',
+];
+const PRICE_CONSUMER_KEYS = [
+  'preconsumidor',
+  'precioConsumidor',
+  'precioConsumidorFinal',
+];
+
 /**
  * Devuelve el primer valor no vacío de un objeto que coincida con las claves
  * especificadas. Se realiza la comparación de forma case-insensitive y, si no
@@ -151,6 +200,8 @@ function hasRelevantInfo(candidate) {
     UNITS_PER_PACK_KEYS,
     STOCK_BULTOS_KEYS,
     STOCK_UNITS_KEYS,
+    PRICE_FINAL_KEYS,
+    PRICE_LIST_DESCRIPTION_KEYS,
   ];
   return keyGroups.some((keys) => pickField(candidate, keys) !== undefined);
 }
@@ -287,6 +338,25 @@ function displayValue(value) {
 }
 
 /**
+ * Formatea un valor numérico como moneda en pesos argentinos. Si no se puede
+ * convertir a número, devuelve el valor tal cual.
+ * @param {*} value
+ * @returns {string}
+ */
+function displayPrice(value) {
+  if (value === undefined || value === null || value === '') return 'N/D';
+  const numberValue = Number(value);
+  if (Number.isFinite(numberValue)) {
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      minimumFractionDigits: 2,
+    }).format(numberValue);
+  }
+  return String(value);
+}
+
+/**
  * Descarga la lista de artículos desde el servidor backend (`/api/articulos`).
  * Este endpoint devuelve todos los artículos no anulados. Se almacena en
  * `articlesList` para reutilizar en las sugerencias.
@@ -330,6 +400,44 @@ async function fetchStock(articleId) {
 }
 
 /**
+ * Solicita el precio vigente de un artículo al servidor backend. Por defecto se
+ * consulta la lista 4 y la fecha actual.
+ * @param {string|number} articleId
+ * @param {{ lista?: string|number, fecha?: string }} [options]
+ */
+async function fetchPrice(articleId, options = {}) {
+  const params = new URLSearchParams();
+  params.set('id', articleId);
+  const { lista, fecha } = options;
+  if (lista !== undefined && lista !== null && lista !== '') {
+    params.set('lista', lista);
+  }
+  if (fecha) {
+    params.set('fecha', fecha);
+  }
+  const response = await fetch(`/api/precio?${params.toString()}`);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (err) {
+    // Ignore JSON parse errors for unsuccessful responses. We'll throw a
+    // generic error below if the payload cannot be parsed.
+  }
+  if (!response.ok) {
+    const message =
+      (payload && (payload.error || payload.message)) || 'Error consultando precio';
+    throw new Error(
+      typeof message === 'string'
+        ? message
+        : Array.isArray(message)
+        ? message.filter(Boolean).join(' ')
+        : 'Error consultando precio'
+    );
+  }
+  return payload || {};
+}
+
+/**
  * Muestra en pantalla la información del artículo y stock recibidos.
  * Si no hay datos, oculta el div de resultados.
  */
@@ -342,6 +450,7 @@ function renderResult(data) {
 
   const article = resolvePrimaryEntry(data.article, ARTICLE_CONTAINER_KEYS) || null;
   const stock = resolvePrimaryEntry(data.stock, STOCK_CONTAINER_KEYS) || null;
+  const priceEntry = resolvePrimaryEntry(data.price, PRICE_CONTAINER_KEYS) || null;
 
   const description = pickField(article, DESCRIPTION_KEYS) || 'Artículo sin descripción';
   let unitsPerPack = pickField(article, UNITS_PER_PACK_KEYS);
@@ -358,12 +467,29 @@ function renderResult(data) {
   }
   const stockBultos = pickField(stock, STOCK_BULTOS_KEYS);
   const stockUnidades = pickField(stock, STOCK_UNITS_KEYS);
+  const finalPrice = priceEntry ? pickField(priceEntry, PRICE_FINAL_KEYS) : undefined;
+  const listCode = priceEntry ? pickField(priceEntry, PRICE_LIST_CODE_KEYS) : undefined;
+  const listDescription = priceEntry
+    ? pickField(priceEntry, PRICE_LIST_DESCRIPTION_KEYS)
+    : undefined;
+  const validFrom = priceEntry ? pickField(priceEntry, PRICE_VALID_FROM_KEYS) : undefined;
+  const validTo = priceEntry ? pickField(priceEntry, PRICE_VALID_TO_KEYS) : undefined;
+  const consumerPrice = priceEntry
+    ? pickField(priceEntry, PRICE_CONSUMER_KEYS)
+    : undefined;
+
+  const listLabel = listDescription || (listCode ? `Lista ${listCode}` : null);
+  const validityLabel = validFrom || validTo ? `${displayValue(validFrom)} - ${displayValue(validTo)}` : null;
 
   resultDiv.innerHTML = `
     <h3>${description}</h3>
     <p><strong>Unidades por bulto:</strong> ${displayValue(unitsPerPack)}</p>
     <p><strong>Stock en bultos:</strong> ${displayValue(stockBultos)}</p>
     <p><strong>Stock en unidades:</strong> ${displayValue(stockUnidades)}</p>
+    <p><strong>Lista consultada:</strong> ${displayValue(listLabel)}</p>
+    <p><strong>Vigencia:</strong> ${displayValue(validityLabel)}</p>
+    <p><strong>Precio final:</strong> ${displayPrice(finalPrice)}</p>
+    <p><strong>Precio consumidor:</strong> ${displayPrice(consumerPrice)}</p>
   `;
   resultDiv.style.display = 'block';
 }
@@ -377,9 +503,12 @@ async function handleSearch(event) {
   const articleId = document.getElementById('articleInput').value.trim();
   if (!articleId) return;
   try {
-    const [articulosResp, stockResp] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const DEFAULT_LISTA = 4;
+    const [articulosResp, stockResp, priceResp] = await Promise.all([
       fetchArticle(articleId),
       fetchStock(articleId),
+      fetchPrice(articleId, { lista: DEFAULT_LISTA, fecha: today }),
     ]);
     const article =
       resolvePrimaryEntry(articulosResp, ARTICLE_CONTAINER_KEYS) ||
@@ -388,7 +517,10 @@ async function handleSearch(event) {
       findEntryById(stockResp, STOCK_CONTAINER_KEYS, articleId) ||
       resolvePrimaryEntry(stockResp, STOCK_CONTAINER_KEYS) ||
       (Array.isArray(stockResp) ? stockResp[0] || null : stockResp);
-    renderResult({ article, stock });
+    const price =
+      resolvePrimaryEntry(priceResp, PRICE_CONTAINER_KEYS) ||
+      (Array.isArray(priceResp) ? priceResp[0] || null : priceResp);
+    renderResult({ article, stock, price });
   } catch (err) {
     alert(err.message);
     console.error(err);
