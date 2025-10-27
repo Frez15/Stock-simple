@@ -53,6 +53,12 @@ const ARTICLE_ID_KEYS = [
   'articulo',
   'codarticulo',
   'codArticulo',
+  'codart',
+  'CodArt',
+  'codArt',
+  'codigoarticulo',
+  'codigoArticulo',
+  'codigo',
 ];
 const DESCRIPTION_KEYS = [
   'desarticulo',
