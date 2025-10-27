@@ -98,6 +98,7 @@ async function handler(req, res) {
   const lista = list || '4';
   // Fecha en formato YYYY-MM-DD; si no se pasa se utiliza la actual
   const hoy = date || new Date().toISOString().split('T')[0];
+  const normalizedId = String(id);
   if (!username || !password) {
     return res
       .status(500)
