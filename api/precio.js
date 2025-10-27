@@ -1,124 +1,61 @@
 // /api/precio.js
-// Siempre consulta lista=4 y fecha=hoy (lado servidor) con:
-//   /listaPrecios/?Fecha=YYYY-MM-DD&Lista=4&CodArt={id}
+// Usa tu propio /api/login para obtener { sessionId: "JSESSIONID=..." }.
+// Luego llama a Chess: /listaPrecios/?Fecha=YYYY-MM-DD&Lista=4&CodArt={id}
 
 function formatTodayISO() {
-  const now = new Date(); // hora del servidor
+  const now = new Date();
   const y = now.getFullYear();
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 
-// Intenta extraer "JSESSIONID=..." desde distintas fuentes
-function pickJSessionFromHeaders(resp) {
-  // Vercel/undici soporta getSetCookie()
-  const getSetCookie = resp.headers?.getSetCookie?.();
-  if (Array.isArray(getSetCookie) && getSetCookie.length) {
-    const joined = getSetCookie.join('; ');
-    const m = joined.match(/JSESSIONID=[^;]+/i);
-    if (m) return m[0];
-  }
-  // fallback: get('set-cookie') (algunas plataformas colapsan en una sola)
-  const sc = resp.headers?.get?.('set-cookie');
-  if (sc) {
-    const m = String(sc).match(/JSESSIONID=[^;]+/i);
-    if (m) return m[0];
-  }
-  return null;
+function buildSelfBaseUrl(req) {
+  const proto = (req.headers['x-forwarded-proto'] || 'https');
+  const host  = req.headers.host || 'localhost:3000';
+  return `${proto}://${host}`;
 }
 
-function pickJSessionFromJson(obj) {
-  if (!obj || typeof obj !== 'object') return null;
-  // chequeos directos comunes
-  const direct = obj.sessionId || obj.token || obj.access_token || obj.JSESSIONID || obj.jsessionid || obj.cookie;
-  if (direct) return String(direct);
+async function getSessionCookieViaLocalLogin(req) {
+  const base = buildSelfBaseUrl(req);
+  const loginUrl = `${base}/api/login`;
+  const resp = await fetch(loginUrl, { headers: { 'Accept': 'application/json' } });
 
-  // rutas anidadas típicas
-  const candidates = [
-    ['data','sessionId'], ['data','token'], ['data','access_token'], ['data','JSESSIONID'],
-    ['result','sessionId'], ['result','token'], ['result','JSESSIONID'],
-    ['sess','sessionId'], ['sess','JSESSIONID'],
-  ];
-  for (const path of candidates) {
-    let cur = obj;
-    for (const key of path) {
-      cur = cur?.[key];
-    }
-    if (cur) return String(cur);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text || `Fallo /api/login (${resp.status})`);
   }
-  return null;
+  const data = await resp.json();
+
+  let sid = data.sessionId || data.token || data.access_token || data.JSESSIONID || data.jsessionid;
+  if (!sid) throw new Error('Login no devolvió sessionId');
+
+  // Si no trae prefijo, ponérselo (pero si ya viene como "JSESSIONID=..." lo dejamos igual)
+  if (!/^JSESSIONID=/i.test(String(sid))) sid = `JSESSIONID=${sid}`;
+  return sid; // Este valor se usa en el header Cookie tal cual
 }
 
 async function handler(req, res) {
-  const CHESS_API_BASE = process.env.CHESS_API_BASE ||
-    'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-
-  // OJO con mayúsculas del usuario: soporte dijo que es case-sensitive
-  const username = process.env.CHESS_USER || 'Desarrrollos'; // “Desarrrollos” (tres erres), como venías usando
-  const password = process.env.CHESS_PASSWORD || '1234';
-  if (!username || !password) {
-    return res.status(500).json({ error: 'Credenciales de ChessERP no configuradas en el servidor' });
-    }
+  const CHESS_API_BASE = process.env.CHESS_API_BASE
+    || 'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
 
   const codArt = (req.query.id ?? '').toString().trim();
-  if (!codArt) {
-    return res.status(400).json({ error: 'Falta parámetro id (CodArt)' });
-  }
+  if (!codArt) return res.status(400).json({ error: 'Falta parámetro id (CodArt)' });
 
-  const lista = '4';
-  const fecha = formatTodayISO();
+  const lista = '4';                   // fijo
+  const fecha = formatTodayISO();      // siempre hoy (lado server)
 
   try {
-    // 1) Login
-    const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      // OJO: el backend pide {usuario, password} (no {username})
-      body: JSON.stringify({ usuario: username, password: password }),
-      redirect: 'manual', // por si hace 302 con Set-Cookie
-    });
+    // 1) Obtener sessionId desde tu propio /api/login (igual que stock.js/articulo.js)
+    const sessionCookie = await getSessionCookieViaLocalLogin(req);
 
-    if (!loginResp.ok && loginResp.status !== 302) {
-      const text = await loginResp.text().catch(() => '');
-      return res.status(loginResp.status).json({ error: text || 'Error de autenticación' });
-    }
-
-    // A) Intentar Set-Cookie → JSESSIONID
-    let sessionCookie = pickJSessionFromHeaders(loginResp);
-
-    // B) Intentar leer JSON y buscar sessionId en múltiples rutas
-    //    (si el endpoint respondió 302 puede no haber body; capturamos error)
-    let loginJson = {};
-    try { loginJson = await loginResp.json(); } catch (_) {}
-    if (!sessionCookie) {
-      let sid = pickJSessionFromJson(loginJson);
-      if (sid) {
-        if (!/^JSESSIONID=/i.test(sid)) sid = `JSESSIONID=${sid}`;
-        sessionCookie = sid;
-      }
-    }
-
-    if (!sessionCookie) {
-      // Debug amigable: qué claves llegaron en loginJson
-      const keys = loginJson && typeof loginJson === 'object' ? Object.keys(loginJson) : [];
-      return res.status(500).json({
-        error: 'No se recibió sessionId (ni Set-Cookie) en el login',
-        detail: { jsonKeys: keys }
-      });
-    }
-
-    // 2) Build URL EXACTA hacia Chess
-    //    /listaPrecios/?Fecha=YYYY-MM-DD&Lista=4&CodArt=...
+    // 2) Construir URL EXACTA hacia Chess (casing exacto según doc)
     const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
-    url.searchParams.set('Fecha', fecha);  // mayúsculas exactas
+    url.searchParams.set('Fecha', fecha);
     url.searchParams.set('Lista', lista);
     url.searchParams.set('CodArt', codArt);
 
-    // 3) GET precios
+    // 3) Consultar Chess con la cookie
     const priceResp = await fetch(url.toString(), {
       method: 'GET',
       headers: {
