@@ -141,6 +141,10 @@ const STOCK_UNITS_KEYS = [
  */
 function pickField(source, keys) {
   if (!source || typeof source !== 'object') return undefined;
+
+  const isUsableValue = (value) =>
+    value !== undefined && value !== null && value !== '' && typeof value !== 'object';
+
   const entries = Object.entries(source);
   const loweredEntries = entries.map(([k, v]) => [k.toLowerCase(), v]);
   for (const key of keys) {
@@ -148,14 +152,14 @@ function pickField(source, keys) {
     const directMatch = loweredEntries.find(([entryKey]) => entryKey === lowerKey);
     if (directMatch) {
       const value = directMatch[1];
-      if (value !== undefined && value !== null && value !== '') return value;
+      if (isUsableValue(value)) return value;
     }
   }
   // Segundo intento: coincidencia parcial (útil para claves como `cantidadXBulto`).
   for (const key of keys) {
     const lowerKey = key.toLowerCase();
     const partialMatch = entries.find(([entryKey, value]) => {
-      if (value === undefined || value === null || value === '') return false;
+      if (!isUsableValue(value)) return false;
       return entryKey.toLowerCase().includes(lowerKey);
     });
     if (partialMatch) {
@@ -203,11 +207,9 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   for (const key of containerKeys) {
-    const directKey = Object.keys(payload).find(
-      (entryKey) => entryKey.toLowerCase() === key.toLowerCase()
-    );
-    if (directKey !== undefined) {
-      const resolved = resolvePrimaryEntry(payload[directKey], containerKeys);
+    const directValue = getValueCaseInsensitive(payload, key);
+    if (directValue !== undefined) {
+      const resolved = resolvePrimaryEntry(directValue, containerKeys);
       if (resolved && hasRelevantInfo(resolved)) return resolved;
     }
   }
@@ -220,6 +222,15 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   return null;
+}
+
+function getValueCaseInsensitive(payload, key) {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const lowerKey = key.toLowerCase();
+  const matchedKey = Object.keys(payload).find(
+    (entryKey) => entryKey.toLowerCase() === lowerKey
+  );
+  return matchedKey !== undefined ? payload[matchedKey] : undefined;
 }
 
 /**
@@ -235,8 +246,9 @@ function unwrapArray(payload, containerKeys = []) {
   if (Array.isArray(payload)) return payload;
 
   for (const key of containerKeys) {
-    if (payload[key] !== undefined) {
-      const nested = unwrapArray(payload[key], containerKeys);
+    const candidate = getValueCaseInsensitive(payload, key);
+    if (candidate !== undefined) {
+      const nested = unwrapArray(candidate, containerKeys);
       if (nested.length) return nested;
     }
   }
@@ -245,9 +257,52 @@ function unwrapArray(payload, containerKeys = []) {
     if (Array.isArray(value)) {
       return value;
     }
+    if (value && typeof value === 'object') {
+      const nested = unwrapArray(value, containerKeys);
+      if (nested.length) return nested;
+    }
   }
 
-  return typeof payload === 'object' ? [payload] : [];
+  return hasRelevantInfo(payload) ? [payload] : [];
+}
+
+/**
+ * Busca dentro de un payload arbitrario el elemento cuyo ID coincide con el
+ * proporcionado. Si no encuentra coincidencia, devuelve la primera entrada con
+ * información relevante como fallback.
+ * @param {*} payload
+ * @param {string[]} containerKeys
+ * @param {string|number} targetId
+ * @returns {object|null}
+ */
+function findEntryById(payload, containerKeys = [], targetId) {
+  if (targetId === undefined || targetId === null) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const normalizedId = String(targetId).trim().toLowerCase();
+  if (!normalizedId) {
+    return resolvePrimaryEntry(payload, containerKeys);
+  }
+
+  const list = unwrapArray(payload, containerKeys);
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const candidateId = pickField(item, ARTICLE_ID_KEYS);
+    if (candidateId === undefined) continue;
+    const normalizedCandidate = String(candidateId).trim().toLowerCase();
+    if (normalizedCandidate === normalizedId) {
+      return item;
+    }
+  }
+
+  if (list.length) {
+    const fallback = resolvePrimaryEntry(list, containerKeys);
+    if (fallback) return fallback;
+    return list.find((item) => hasRelevantInfo(item)) || list[0] || null;
+  }
+
+  return resolvePrimaryEntry(payload, containerKeys);
 }
 
 /**
@@ -380,6 +435,7 @@ async function handleSearch(event) {
       resolvePrimaryEntry(priceResp, PRICE_CONTAINER_KEYS) ||
       (Array.isArray(priceResp) ? priceResp[0] || null : priceResp);
     const stock =
+      findEntryById(stockResp, STOCK_CONTAINER_KEYS, articleId) ||
       resolvePrimaryEntry(stockResp, STOCK_CONTAINER_KEYS) ||
       (Array.isArray(stockResp) ? stockResp[0] || null : stockResp);
     renderResult({ article, price, stock });
