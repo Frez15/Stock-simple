@@ -386,28 +386,37 @@ async function handleSearch(event) {
 // Asignamos el manejador al formulario de búsqueda
 document.getElementById('searchForm').addEventListener('submit', handleSearch);
 
-// Autocompletado: filtra coincidencias por descripción
 document.getElementById('articleInput').addEventListener('input', async (e) => {
-  const term = e.target.value.trim().toLowerCase();
+  const termRaw = e.target.value.trim();
+  const term = termRaw.toLowerCase();
   const datalist = document.getElementById('articleSuggestions');
-  if (!term) {
+
+  // Mostrar sugerencias SOLO si hay 3+ caracteres
+  if (term.length < 3) {
     datalist.innerHTML = '';
     return;
   }
+
   try {
     await loadAllArticles();
+
+    // Filtrar por descripción que contenga el término o por código que empiece con el término
     const matches = articlesList
       .map((item) => resolvePrimaryEntry(item, ARTICLE_CONTAINER_KEYS) || item)
       .filter((item) => {
         const desc = (pickField(item, DESCRIPTION_KEYS) || '').toLowerCase();
-        return desc.includes(term);
+        const code = String(pickField(item, ARTICLE_ID_KEYS) || '').toLowerCase();
+        return desc.includes(term) || code.startsWith(term);
       })
-      .slice(0, 5);
+      .slice(0, 10); // mostramos hasta 10
+
     datalist.innerHTML = matches
       .map((item) => {
         const label = pickField(item, DESCRIPTION_KEYS) || '';
         const value = pickField(item, ARTICLE_ID_KEYS) || '';
         if (!value && !label) return '';
+        // En datalist: value = lo que se inserta en el input (código),
+        // label = lo que muestra la lista (descripción).
         return `<option value="${value}" label="${label}"></option>`;
       })
       .join('');
@@ -416,3 +425,4 @@ document.getElementById('articleInput').addEventListener('input', async (e) => {
     datalist.innerHTML = '';
   }
 });
+
