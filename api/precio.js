@@ -9,6 +9,7 @@ const ARTICLE_ID_KEYS = [
   'idArticulo',
   'articulo',
   'id',
+  'Artículo',
 ];
 
 const PRICE_CONTAINER_KEYS = [
