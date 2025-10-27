@@ -1,10 +1,17 @@
 // /api/precio.js
-// Serverless function to fetch price information for an article from ChessERP.
-// Query params:
-//   - id    : Código de artículo (CodArt)
-//   - lista : Código/desc de lista de precios (default: process.env.DEFAULT_PRICE_LIST || '4')
-//   - fecha : Fecha de vigencia (YYYY-MM-DD). Si no se envía, usa la vigente.
-// Devuelve el JSON de /listaPrecios/ (lista o único objeto, según responda la API).
+// Consulta de precios de ChessERP por artículo.
+// Parámetros (query):
+//   - id    : Código de artículo (CodArt) [obligatorio]
+//   - lista : Lista de precios (default: process.env.DEFAULT_PRICE_LIST || '4')
+//   - fecha : YYYY-MM-DD [obligatoria] (si no llega, se fuerza a "hoy" del servidor)
+
+function formatTodayISO() {
+  const now = new Date(); // fecha del servidor
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 async function handler(req, res) {
   const CHESS_API_BASE = process.env.CHESS_API_BASE ||
@@ -16,17 +23,20 @@ async function handler(req, res) {
     return res.status(500).json({ error: 'Credenciales de ChessERP no configuradas en el servidor' });
   }
 
-  // Leer query
   const codArt = (req.query.id ?? '').toString().trim();
   const lista  = (req.query.lista ?? process.env.DEFAULT_PRICE_LIST ?? '4').toString().trim();
-  const fecha  = (req.query.fecha ?? '').toString().trim();
+  let fecha    = (req.query.fecha ?? '').toString().trim();
 
   if (!codArt) {
     return res.status(400).json({ error: 'Falta parámetro id (CodArt)' });
   }
+  if (!fecha) {
+    // La fecha ES obligatoria; si no vino, forzamos hoy (lado servidor)
+    fecha = formatTodayISO();
+  }
 
   try {
-    // 1) Login
+    // Login
     const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -38,7 +48,6 @@ async function handler(req, res) {
     }
     const loginData = await loginResp.json();
 
-    // sessionId puede venir ya como "JSESSIONID=...."
     let sessionCookie = loginData.sessionId || loginData.token || loginData.access_token;
     if (!sessionCookie) {
       return res.status(500).json({ error: 'No se recibió sessionId en el login' });
@@ -47,27 +56,24 @@ async function handler(req, res) {
       sessionCookie = `JSESSIONID=${sessionCookie}`;
     }
 
-    // 2) Build URL /listaPrecios/
+    // URL de precios
     const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
-    if (lista)  url.searchParams.set('Lista', lista);
-    if (codArt) url.searchParams.set('CodArt', codArt);
-    if (fecha)  url.searchParams.set('Fecha', fecha); // opcional
+    url.searchParams.set('Lista', lista);
+    url.searchParams.set('CodArt', codArt);
+    url.searchParams.set('Fecha', fecha); // siempre enviamos fecha
 
-    // 3) GET precios
+    // GET precios
     const priceResp = await fetch(url.toString(), {
       method: 'GET',
       headers: { Cookie: sessionCookie },
     });
-
     if (!priceResp.ok) {
       const text = await priceResp.text();
       return res.status(priceResp.status).json({ error: text || 'Error consultando precios' });
     }
 
     const data = await priceResp.json();
-
-    // 4) Normalizar: si viene objeto, envolver en array para frontend homogéneo
-    const list = Array.isArray(data) ? data : [data];
+    const list = Array.isArray(data) ? data : [data]; // homogeneizamos a lista
     return res.status(200).json(list);
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
