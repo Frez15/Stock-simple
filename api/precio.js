@@ -83,45 +83,6 @@ function unwrapPriceEntries(payload) {
   return [];
 }
 
-function normalizeArticleId(value) {
-  if (value === undefined || value === null) return '';
-  return String(value);
-}
-
-function trimLeadingZeros(value) {
-  if (typeof value !== 'string') value = normalizeArticleId(value);
-  if (!value) return value;
-  const trimmed = value.replace(/^0+/, '');
-  return trimmed.length ? trimmed : '0';
-}
-
-async function requestPriceList(sessionId, baseUrl, params) {
-  const url = new URL(`${baseUrl}/listaPrecios/`);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
-    url.searchParams.append(key, value);
-  });
-  const requestUrl = url.toString();
-  console.log('[api/precio] listaPrecios query:', requestUrl);
-  const cookieValue =
-    typeof sessionId === 'string' && sessionId.includes('=')
-      ? sessionId
-      : `JSESSIONID=${sessionId}`;
-  const response = await fetch(requestUrl, {
-    headers: {
-      Cookie: cookieValue,
-      accept: 'application/json',
-    },
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(text || 'Error consultando precios');
-    error.status = response.status;
-    throw error;
-  }
-  return { data: await response.json(), requestUrl };
-}
-
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
@@ -137,8 +98,7 @@ async function handler(req, res) {
   const lista = list || '4';
   // Fecha en formato YYYY-MM-DD; si no se pasa se utiliza la actual
   const hoy = date || new Date().toISOString().split('T')[0];
-  const normalizedId = normalizeArticleId(id);
-  const comparableId = trimLeadingZeros(normalizedId);
+  const normalizedId = String(id);
   if (!username || !password) {
     return res
       .status(500)
@@ -163,55 +123,31 @@ async function handler(req, res) {
     // el nombre de la cookie, se envía el valor completo tal como lo
     // proporciona ChessERP en la cabecera Cookie. Esto es equivalente a
     // enviar "Cookie: JSESSIONID=xyz" cuando el valor ya incluye el prefijo.
-    const candidateIds = new Set();
-    candidateIds.add(normalizedId);
-    if (/^\d+$/.test(normalizedId)) {
-      const paddedSix = normalizedId.padStart(6, '0');
-      const paddedThirteen = normalizedId.padStart(13, '0');
-      candidateIds.add(paddedSix);
-      candidateIds.add(paddedThirteen);
+    const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
+    url.searchParams.append('Fecha', hoy);
+    url.searchParams.append('Lista', lista);
+    const priceResp = await fetch(url.toString(), {
+      headers: {
+        Cookie: sessionId,
+        accept: 'application/json',
+      },
+    });
+    if (!priceResp.ok) {
+      const text = await priceResp.text();
+      return res.status(priceResp.status).json({ error: text || 'Error consultando precios' });
     }
-
-    let results = [];
-
-    for (const candidate of candidateIds) {
-      const { data } = await requestPriceList(sessionId, CHESS_API_BASE, {
-        Fecha: hoy,
-        Lista: lista,
-        CodArt: candidate,
-      });
-      let entries = unwrapPriceEntries(data);
-      if (!entries.length && data && typeof data === 'object') {
-        entries = [data];
-      }
-      results = entries.filter((item) => {
-        if (!item || typeof item !== 'object') return false;
-        const candidateId = pickField(item, ARTICLE_ID_KEYS);
-        if (candidateId === undefined || candidateId === null) return false;
-        const comparableCandidate = trimLeadingZeros(candidateId);
-        return comparableCandidate === comparableId;
-      });
-      if (results.length) break;
+    const listData = await priceResp.json();
+    let entries = unwrapPriceEntries(listData);
+    if (!entries.length && listData && typeof listData === 'object') {
+      entries = [listData];
     }
-
-    if (!results.length) {
-      const { data } = await requestPriceList(sessionId, CHESS_API_BASE, {
-        Fecha: hoy,
-        Lista: lista,
-      });
-      let entries = unwrapPriceEntries(data);
-      if (!entries.length && data && typeof data === 'object') {
-        entries = [data];
-      }
-      results = entries.filter((item) => {
-        if (!item || typeof item !== 'object') return false;
-        const candidateId = pickField(item, ARTICLE_ID_KEYS);
-        if (candidateId === undefined || candidateId === null) return false;
-        const comparableCandidate = trimLeadingZeros(candidateId);
-        return comparableCandidate === comparableId;
-      });
-    }
-
+    const normalizedId = String(id);
+    const results = entries.filter((item) => {
+      if (!item || typeof item !== 'object') return false;
+      const candidateId = pickField(item, ARTICLE_ID_KEYS);
+      if (candidateId === undefined || candidateId === null) return false;
+      return String(candidateId) === normalizedId;
+    });
     res.status(200).json(results);
   } catch (err) {
     const status = err.status || 500;
