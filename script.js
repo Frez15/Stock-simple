@@ -203,11 +203,9 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   for (const key of containerKeys) {
-    const directKey = Object.keys(payload).find(
-      (entryKey) => entryKey.toLowerCase() === key.toLowerCase()
-    );
-    if (directKey !== undefined) {
-      const resolved = resolvePrimaryEntry(payload[directKey], containerKeys);
+    const directValue = getValueCaseInsensitive(payload, key);
+    if (directValue !== undefined) {
+      const resolved = resolvePrimaryEntry(directValue, containerKeys);
       if (resolved && hasRelevantInfo(resolved)) return resolved;
     }
   }
@@ -220,6 +218,15 @@ function resolvePrimaryEntry(payload, containerKeys = []) {
   }
 
   return null;
+}
+
+function getValueCaseInsensitive(payload, key) {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const lowerKey = key.toLowerCase();
+  const matchedKey = Object.keys(payload).find(
+    (entryKey) => entryKey.toLowerCase() === lowerKey
+  );
+  return matchedKey !== undefined ? payload[matchedKey] : undefined;
 }
 
 /**
@@ -235,8 +242,9 @@ function unwrapArray(payload, containerKeys = []) {
   if (Array.isArray(payload)) return payload;
 
   for (const key of containerKeys) {
-    if (payload[key] !== undefined) {
-      const nested = unwrapArray(payload[key], containerKeys);
+    const candidate = getValueCaseInsensitive(payload, key);
+    if (candidate !== undefined) {
+      const nested = unwrapArray(candidate, containerKeys);
       if (nested.length) return nested;
     }
   }
@@ -245,9 +253,13 @@ function unwrapArray(payload, containerKeys = []) {
     if (Array.isArray(value)) {
       return value;
     }
+    if (value && typeof value === 'object') {
+      const nested = unwrapArray(value, containerKeys);
+      if (nested.length) return nested;
+    }
   }
 
-  return typeof payload === 'object' ? [payload] : [];
+  return hasRelevantInfo(payload) ? [payload] : [];
 }
 
 /**
