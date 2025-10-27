@@ -1,60 +1,49 @@
-// Serverless function to fetch the price information of an article from
-// ChessERP. It authenticates on each request, requests the price list
-// (default list = 4) for the current date, and returns the matching
-// article's price entry. If the article is not found, returns an empty
-// array.
+// === helpers robustos ===
+function normalize(str) {
+  return String(str)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // saca tildes
+    .replace(/[.\-_/]/g, "")                          // saca signos comunes
+    .toLowerCase().trim();
+}
+function normalizeKey(str) {
+  return normalize(str).replace(/\s+/g, "");          // saca espacios para claves
+}
+function normalizeId(val) {
+  // Dejamos solo dígitos; si no hay dígitos, comparamos como string normalizado
+  const digits = String(val).match(/\d+/g)?.join("") ?? "";
+  return digits || normalize(val);
+}
 
+// Incluí variantes frecuentes en español
 const ARTICLE_ID_KEYS = [
   'idarticulo',
   'idArticulo',
   'articulo',
-  'id',
-  'Artículo',
+  'Artículo',                // con tilde
+  'codigo',                  // a veces viene así
+  'codigoarticulo',
+  'códigoartículo',          // con tildes
+  'cod.articulo',
+  'cod articulo',
+  'id'
 ];
-
-const PRICE_CONTAINER_KEYS = [
-  'precios',
-  'lista',
-  'items',
-  'detalle',
-  'articulos',
-  'data',
-  'resultado',
-  'resultados',
-  'articulo',
-];
-
-function getValueCaseInsensitive(object, key) {
-  if (!object || typeof object !== 'object') return undefined;
-  const lowerKey = key.toLowerCase();
-  const match = Object.keys(object).find(
-    (candidate) => candidate.toLowerCase() === lowerKey
-  );
-  return match !== undefined ? object[match] : undefined;
-}
 
 function pickField(object, keys) {
   if (!object || typeof object !== 'object') return undefined;
-  const entries = Object.entries(object);
-  for (const key of keys) {
-    const lowerKey = key.toLowerCase();
-    const direct = entries.find(
-      ([candidate]) => candidate.toLowerCase() === lowerKey
-    );
-    if (direct && direct[1] !== undefined && direct[1] !== null) {
-      return direct[1];
+  const entries = Object.entries(object).filter(([_, v]) => v !== undefined && v !== null);
+
+  // 1) match exacto (ignorando tildes, mayúsculas, espacios y signos)
+  for (const [candidate, value] of entries) {
+    const ck = normalizeKey(candidate);
+    for (const k of keys) {
+      if (ck === normalizeKey(k)) return value;
     }
   }
-  for (const key of keys) {
-    const lowerKey = key.toLowerCase();
-    const partial = entries.find(
-      ([candidate, value]) =>
-        candidate.toLowerCase().includes(lowerKey) &&
-        value !== undefined &&
-        value !== null
-    );
-    if (partial) {
-      return partial[1];
+  // 2) match parcial (por si viene "Código de Artículo")
+  for (const [candidate, value] of entries) {
+    const ck = normalizeKey(candidate);
+    for (const k of keys) {
+      if (ck.includes(normalizeKey(k))) return value;
     }
   }
   return undefined;
@@ -62,99 +51,120 @@ function pickField(object, keys) {
 
 function unwrapPriceEntries(payload) {
   if (!payload) return [];
-  if (Array.isArray(payload)) {
-    return payload.filter((item) => item !== undefined && item !== null);
-  }
+  if (Array.isArray(payload)) return payload.filter(v => v != null);
+
   if (typeof payload !== 'object') return [];
 
+  const PRICE_CONTAINER_KEYS = [
+    'precios','lista','items','detalle','articulos','data',
+    'resultado','resultados','articulo','rows','records'
+  ];
+
+  // busca por contenedores conocidos
   for (const key of PRICE_CONTAINER_KEYS) {
-    const candidate = getValueCaseInsensitive(payload, key);
+    const candidate = pickField(payload, [key]);
     if (candidate !== undefined) {
       const nested = unwrapPriceEntries(candidate);
       if (nested.length) return nested;
     }
   }
-
+  // sino, recorre todo el objeto
   for (const value of Object.values(payload)) {
-    if (!value) continue;
     const nested = unwrapPriceEntries(value);
     if (nested.length) return nested;
   }
-
   return [];
 }
 
 async function handler(req, res) {
   const CHESS_API_BASE =
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Always use the fixed credentials for the API. We avoid using
-  // environment variables since they may still contain outdated users.
-  // The username includes three r's as specified by support.
   const username = 'Desarrrollos';
   const password = '1234';
   const { id, list, date } = req.query;
+
   if (!id) {
     return res.status(400).json({ error: 'Falta el parámetro id' });
   }
   const lista = list || '4';
-  // Fecha en formato YYYY-MM-DD; si no se pasa se utiliza la actual
   const hoy = date || new Date().toISOString().split('T')[0];
-  const normalizedId = String(id);
-  if (!username || !password) {
-    return res
-      .status(500)
-      .json({ error: 'Credenciales de ChessERP no configuradas en el servidor' });
-  }
+
   try {
-    // Autenticar
+    // --- LOGIN ---
     const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ usuario: username, password: password }),
     });
     if (!loginResp.ok) {
-      const text = await loginResp.text();
-      return res.status(loginResp.status).json({ error: text || 'Error de autenticación' });
+      return res.status(loginResp.status).json({ error: await loginResp.text() || 'Error de autenticación' });
     }
     const loginData = await loginResp.json();
-    const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
 
-    // Consultar la lista de precios
-    // La API devuelve sessionId en forma "JSESSIONID=xyz". Para evitar duplicar
-    // el nombre de la cookie, se envía el valor completo tal como lo
-    // proporciona ChessERP en la cabecera Cookie. Esto es equivalente a
-    // enviar "Cookie: JSESSIONID=xyz" cuando el valor ya incluye el prefijo.
+    // Sanitiza cookie: quedate solo con "JSESSIONID=xyz"
+    const rawCookie =
+      loginData.sessionId || loginData.token || loginData.access_token || '';
+    const cookie = String(rawCookie).split(';')[0]; // <- importante
+
+    // --- LISTA DE PRECIOS ---
     const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
     url.searchParams.append('Fecha', hoy);
     url.searchParams.append('Lista', lista);
+
     const priceResp = await fetch(url.toString(), {
       headers: {
-        Cookie: sessionId,
+        Cookie: cookie,
         accept: 'application/json',
       },
     });
     if (!priceResp.ok) {
-      const text = await priceResp.text();
-      return res.status(priceResp.status).json({ error: text || 'Error consultando precios' });
+      return res.status(priceResp.status).json({ error: await priceResp.text() || 'Error consultando precios' });
     }
+
     const listData = await priceResp.json();
     let entries = unwrapPriceEntries(listData);
     if (!entries.length && listData && typeof listData === 'object') {
+      // a veces devuelve un objeto único
       entries = [listData];
     }
-    const normalizedId = String(id);
+
+    const needle = normalizeId(id); // "142" => "142", "000142" => "142"
+
     const results = entries.filter((item) => {
       if (!item || typeof item !== 'object') return false;
-      const candidateId = pickField(item, ARTICLE_ID_KEYS);
-      if (candidateId === undefined || candidateId === null) return false;
-      return String(candidateId) === normalizedId;
+
+      // intentá primero con las claves declaradas
+      let candidateId = pickField(item, ARTICLE_ID_KEYS);
+
+      // si no encontró, probá campos compuestos típicos como "Código de Artículo"
+      if (candidateId == null) {
+        candidateId = pickField(item, [
+          'Código de Artículo',
+          'Codigo de Articulo',
+          'Código',
+          'Codigo',
+        ]);
+      }
+      if (candidateId == null) return false;
+
+      return normalizeId(candidateId) === needle;
     });
-    res.status(200).json(results);
+
+    // DEBUG opcional (borrá en producción): si no hay resultados, devolvé claves para inspección
+    if (!results.length) {
+      const sample = Array.isArray(entries) && entries.length ? entries[0] : listData;
+      return res.status(200).json({
+        results: [],
+        hint: 'Sin coincidencias. Revisá normalización y nombre de campos.',
+        sampleKeys: sample && typeof sample === 'object' ? Object.keys(sample) : null
+      });
+    }
+
+    return res.status(200).json(results);
   } catch (err) {
-    const status = err.status || 500;
-    res.status(status).json({ error: err.message || 'Error conectando con ChessERP' });
+    return res.status(500).json({ error: err?.message || 'Error conectando con ChessERP' });
   }
 }
 
-// Export handler using CommonJS so Vercel can pick up the function without ESM config
 module.exports = handler;
+
