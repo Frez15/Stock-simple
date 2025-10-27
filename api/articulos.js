@@ -9,8 +9,8 @@ async function handler(req, res) {
   const username = 'Desarrrollos';
   const password = '1234';
 
-  const q = (req.query.q || '').toString().trim();
-  const limit = Math.min(parseInt(req.query.limit || '15', 10) || 15, 100);
+const q = (req.query.q || '').toString().trim();
+const limit = Math.min(parseInt(req.query.limit || '2000', 10) || 2000, 2000);
 
   try {
     // 1) Login
