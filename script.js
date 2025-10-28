@@ -87,6 +87,19 @@ const STOCK_BULTOS_KEYS = [
   'bultos',
   'cantidadBultos',
 ];
+const MINIMO_VENTA_KEYS = [
+  'minimoVenta',
+  'minimoventa',
+  'cantMinima',
+  'cantidadMinima',
+];
+
+const PESABLE_KEYS = [
+  'pesable',
+  'esPesable',
+  'articuloPesable',
+];
+
 const STOCK_UNITS_KEYS = [
   'cantunidades',
   'cantUnidades',
@@ -307,6 +320,8 @@ function renderResult(data) {
   const article = resolvePrimaryEntry(data.article, ARTICLE_CONTAINER_KEYS) || null;
   const stock   = resolvePrimaryEntry(data.stock,   STOCK_CONTAINER_KEYS)   || null;
   const price   = data.price ? pickPriceEntry(data.price) : null;
+  const minimoVenta = article && pickField(article, MINIMO_VENTA_KEYS);
+  const pesable = article && pickField(article, PESABLE_KEYS);
 
   const description = pickField(article, DESCRIPTION_KEYS) || 'Artículo sin descripción';
 
@@ -348,6 +363,9 @@ function renderResult(data) {
     <hr>
     <p><strong>Precio x bulto:</strong> ${formatNumber(precioFinal)}</p>
     <p><strong>Precio unitario:</strong> ${formatNumber(precioUnitario)}</p>
+    <p><strong>Mínimo de venta:</strong> ${displayValue(minimoVenta)}</p>
+    <p><strong>Pesable:</strong> ${pesable ? 'Sí' : 'No'}</p>
+
   `;
   resultDiv.style.display = 'block';
 }
