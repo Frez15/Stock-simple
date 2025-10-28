@@ -268,7 +268,7 @@ function displayValue(value) {
 // =================== Requests al backend =================== //
 async function loadAllArticles() {
   if (articlesList) return;
-  const response = await fetch('/api/lista-precios-dump');
+  const response = await fetch('/api/articulos');
   if (!response.ok) throw new Error('Error al obtener artículos');
   const data = await response.json();
   const rawList = unwrapArray(data, ARTICLE_CONTAINER_KEYS);
