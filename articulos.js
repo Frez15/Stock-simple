@@ -1,50 +1,72 @@
-// Serverless function to fetch all articles from ChessERP. It authenticates
-// on each request and returns the complete list of articles (non-annulled)
-// to the client for autocompletion and searching.
+// /api/articulos.js
+// Llama a ChessERP: /listaPrecios/?Fecha=YYYY-MM-DD&Lista=4 (sin paginación)
+// Devuelve el response crudo tal cual lo entrega Chess, para inspección.
+
+function formatTodayISO() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function buildSelfBaseUrl(req) {
+  const proto = (req.headers['x-forwarded-proto'] || 'https');
+  const host  = req.headers.host || 'localhost:3000';
+  return `${proto}://${host}`;
+}
+
+async function getSessionCookieViaLocalLogin(req) {
+  // Usa tu propio /api/login que ya autentica y retorna { sessionId: "JSESSIONID=..." }
+  const base = buildSelfBaseUrl(req);
+  const resp = await fetch(`${base}/api/login`, { headers: { 'Accept': 'application/json' } });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(text || `Fallo /api/login (${resp.status})`);
+  }
+  const data = await resp.json();
+  let sid = data.sessionId || data.token || data.access_token || data.JSESSIONID || data.jsessionid;
+  if (!sid) throw new Error('Login no devolvió sessionId');
+  if (!/^JSESSIONID=/i.test(String(sid))) sid = `JSESSIONID=${sid}`;
+  return sid; // listo para usar en header Cookie
+}
 
 async function handler(req, res) {
   const CHESS_API_BASE =
+    process.env.CHESS_API_BASE ||
     'https://simpledistribuciones.chesserp.com/AR1268/web/api/chess/v1';
-  // Use environment variables if provided; otherwise fall back to
-  // hard-coded credentials. See login.js for more details.
-  // Utilizar el usuario de API correcto. Por defecto 'Desarrrollos' y contraseña '1234'.
-  const username = process.env.CHESS_USER || 'Desarrrollos';
-  const password = process.env.CHESS_PASSWORD || '1234';
-  if (!username || !password) {
-    return res
-      .status(500)
-      .json({ error: 'Credenciales de ChessERP no configuradas en el servidor' });
-  }
+
+  // Permití override vía query (?lista=...&fecha=...)
+  const lista = (req.query.lista ?? '4').toString();
+  const fecha = (req.query.fecha ?? formatTodayISO()).toString();
+
   try {
-    // Autenticar
-    const loginResp = await fetch(`${CHESS_API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ usuario: username, password: password }),
+    const sessionCookie = await getSessionCookieViaLocalLogin(req);
+
+    const url = new URL(`${CHESS_API_BASE}/listaPrecios/`);
+    url.searchParams.set('Fecha', fecha); // e.g. 2025-10-28
+    url.searchParams.set('Lista', lista); // e.g. 4
+
+    const r = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Cookie': sessionCookie,
+        'Accept': 'application/json',
+      },
     });
-    if (!loginResp.ok) {
-      const text = await loginResp.text();
-      return res.status(loginResp.status).json({ error: text || 'Error de autenticación' });
+
+    const text = await r.text(); // devolvemos tal cual (texto) por si no es JSON válido
+    // Intentar parsear a JSON; si falla, mandamos texto
+    try {
+      const json = JSON.parse(text);
+      return res.status(r.ok ? 200 : r.status).json(json);
+    } catch {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      return res.status(r.ok ? 200 : r.status).send(text);
     }
-    const loginData = await loginResp.json();
-    const sessionId = loginData.sessionId || loginData.token || loginData.access_token;
-    // Consultar todos los artículos
-    const url = new URL(`${CHESS_API_BASE}/articulos/`);
-    const artResp = await fetch(url.toString(), {
-      headers: { Cookie: `JSESSIONID=${sessionId}` },
-    });
-    if (!artResp.ok) {
-      const text = await artResp.text();
-      return res.status(artResp.status).json({ error: text || 'Error consultando artículos' });
-    }
-    const artData = await artResp.json();
-    // Normalizar a lista
-    const list = Array.isArray(artData) ? artData : [artData];
-    res.status(200).json(list);
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
+    return res.status(500).json({ error: err.message || 'Error conectando con ChessERP' });
   }
 }
 
-// Export handler using CommonJS so Vercel can pick up the function without ESM config
 module.exports = handler;
