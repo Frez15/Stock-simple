@@ -1,43 +1,148 @@
-<header style="text-align:center; margin-bottom:1.5rem;">
-  <img src="/logo-simple.png" alt="Simple Distribuciones" style="height:80px; margin-bottom:1rem;">
-  <h1 style="margin:0;">
-    <span style="font-weight:500;">Consulta de Artículos y Stock</span>
-  </h1>
-</header>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Consulta de Artículos y Stock · Simple</title>
 
-<p style="color:#444; font-size:1em; max-width:600px; margin:0 auto 1rem auto; text-align:center;">
-  Buscá por código o nombre y consultá artículo, stock y precio actualizado. 
-  También te sirve para saber cuánto trae un bulto, o cuánto sale algo.
-</p>
+  <style>
+    :root{
+      --brand:#d32f2f;
+      --text:#222;
+      --muted:#6b7280;
+      --card:#fafafa;
+      --border:#e0e0e0;
+      --shadow:0 2px 8px rgba(0,0,0,.05);
+      --radius:10px;
+    }
 
-<p class="hint" style="color:#6b7280; font-size:0.9em; margin:1rem auto; text-align:center; max-width:600px;">
-  pssst… también podés escribir el <strong>nombre</strong> si no te sabés el código 😉
-</p>
-<form id="searchForm" autocomplete="off" 
-      style="display:flex; justify-content:center; margin:1.5rem auto; max-width:600px;">
-  <input 
-    list="articleSuggestions" 
-    id="articleInput" 
-    name="articleInput" 
-    placeholder="Ej: 100 o 'yogur tregar'"
-    style="flex:1; padding:0.9rem 1rem; font-size:1.1em; border:1px solid #ccc; border-radius:6px 0 0 6px; min-width:300px;"
-  >
-  <datalist id="articleSuggestions"></datalist>
-  <button type="submit" 
-    style="padding:0.9rem 1.5rem; font-size:1.1em; background:#d32f2f; color:#fff; border:none; border-radius:0 6px 6px 0; cursor:pointer; font-weight:bold;">
-    Consultar
-  </button>
-</form>
+    /* Base */
+    body{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      margin: 2rem auto;
+      max-width: 780px;
+      line-height:1.45;
+      padding: 0 1rem;
+    }
 
- <div id="result" class="result" 
-     style="margin:2rem auto; max-width:700px; text-align:left; background:#fafafa; border:1px solid #e0e0e0; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.05); padding:1.5rem; display:none;">
-</div>
+    /* Header */
+    header{
+      text-align:center;
+      margin-bottom:1.5rem;
+    }
+    header img{
+      height:80px; width:auto; display:block; margin:0 auto 1rem;
+    }
+    header h1{ margin:0; font-weight:500; }
 
-<footer style="margin-top:2rem; font-size:.9rem; color:#777; text-align:center;">
-  © 2025 Franco Oller Cesarini para Simple Distribuciones SRL
-</footer>
+    /* Intro + hint */
+    .intro{
+      color:#444; font-size:1em; max-width:600px; margin:0 auto 1rem; text-align:center;
+    }
+    .hint{
+      color:var(--muted);
+      font-size:.95em;
+      margin:1rem auto 1.25rem;
+      text-align:center;
+      max-width:600px;
+    }
 
-<script src="/script.js"></script>
+    /* Form */
+    #searchForm{
+      display:flex; justify-content:center; align-items:stretch;
+      gap:.5rem;
+      margin:1.25rem auto;
+      max-width:700px;
+    }
+    #articleInput{
+      flex:1 1 auto;
+      min-width:300px;
+      padding:.9rem 1rem;
+      font-size:1.1em;
+      border:1px solid #ccc;
+      border-radius:6px;
+    }
+    #searchForm button{
+      padding:.9rem 1.5rem;
+      font-size:1.1em;
+      background:var(--brand);
+      color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:700;
+      white-space:nowrap;
+    }
+    #searchForm button:hover{ filter:brightness(.95); }
+
+    /* Result card */
+    #result.result{
+      margin:2rem auto;
+      max-width:700px;
+      text-align:left;
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:1.5rem;
+      display:none;
+    }
+
+    /* Footer */
+    footer{
+      margin-top:2rem; font-size:.9rem; color:#777; text-align:center;
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 680px){
+      header img{ height:64px; }
+      .intro, .hint{ font-size:.96em; }
+      #searchForm{
+        flex-direction:column;
+        align-items:stretch;
+        max-width:520px;
+      }
+      #articleInput{ min-width:0; width:100%; }
+      #searchForm button{ width:100%; }
+    }
+
+    @media (max-width: 420px){
+      body{ margin:1.25rem auto; }
+      header img{ height:56px; }
+      #result.result{ padding:1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <img src="/logo-simple.png" alt="Simple Distribuciones" />
+    <h1><span style="font-weight:500;">Consulta de Artículos y Stock</span></h1>
+  </header>
+
+  <p class="intro">
+    Buscá por código o nombre y consultá artículo, stock y precio actualizado.
+    También te sirve para saber cuánto trae un bulto, o cuánto sale algo.
+  </p>
+
+  <p class="hint">
+    pssst… también podés escribir el <strong>nombre</strong> si no te sabés el código 😉
+  </p>
+
+  <form id="searchForm" autocomplete="off">
+    <input
+      list="articleSuggestions"
+      id="articleInput"
+      name="articleInput"
+      placeholder="Ej: 100 o 'yogur tregar'">
+    <datalist id="articleSuggestions"></datalist>
+
+    <button type="submit">Consultar</button>
+  </form>
+
+  <div id="result" class="result"></div>
+
+  <footer>
+    © 2025 Franco Oller Cesarini para Simple Distribuciones SRL
+  </footer>
+
+  <script src="/script.js"></script>
 </body>
 </html>
-
