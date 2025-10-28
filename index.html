@@ -1,5 +1,5 @@
 <header style="text-align:center; margin-bottom:1.5rem;">
-  <img src="/logo-simple.png" alt="Simple Distribuciones" style="height:80px; margin-bottom:1rem;">
+  <img src="/public/logo-simple.png" alt="Simple Distribuciones" style="height:80px; margin-bottom:1rem;">
   <h1 style="margin:0;">
     <span style="color:#d32f2f; font-weight:700;">Simple.</span>
     <span style="font-weight:500;">Consulta de Artículos y Stock</span>
@@ -14,18 +14,23 @@
   pssst… también podés escribir el <strong>nombre</strong> si no te sabés el código 😉
 </p>
 
-<form id="searchForm" style="display:flex; justify-content:center; margin:1rem auto; max-width:600px;">
-  <input 
-    type="text" 
-    id="articleInput" 
-    list="articleSuggestions" 
-    placeholder="Ej: 100 o 'yogur tregar'" 
-    style="flex:1; padding:0.8rem 1rem; font-size:1.1em; border:1px solid #ccc; border-radius:6px 0 0 6px; min-width:250px;"
-  />
-  <button 
-    type="submit" 
-    style="padding:0.8rem 1.5rem; font-size:1.1em; background:#d32f2f; color:#fff; border:none; border-radius:0 6px 6px 0; cursor:pointer; font-weight:bold;">
-    Consultar
-  </button>
-</form>
-<datalist id="articleSuggestions"></datalist>
+  <form id="searchForm" autocomplete="off">
+    <div>
+      <label for="articleInput">Código de artículo:</label>
+      <input list="articleSuggestions" id="articleInput" name="articleInput" placeholder="Ej: 100 o 'yogur tregar'">
+      <datalist id="articleSuggestions"></datalist>
+    </div>
+    <div>
+      <button type="submit">Consultar</button>
+    </div>
+  </form>
+
+  <div id="result" class="result"></div>
+
+  <footer>
+    © 2025 Franco Oller Cesarini para Simple Distribuciones SRL
+  </footer>
+
+  <script src="/script.js"></script>
+</body>
+</html>
